@@ -35,6 +35,18 @@ function setBoundaryRegions(regions){
 let palette={face:0x75a8b5,edge:0x304650};
 let sampleObjects=[];
 let translationPreview=null,previewOffset=new THREE.Vector3();
+let previewMatrix=new THREE.Matrix4(),baseCenter=new THREE.Vector3(),baseRadius=15;
+let baseGridMatrix=new THREE.Matrix4(),baseAxesMatrix=new THREE.Matrix4();
+function objectMatrix(object,matrix){
+  object.matrixAutoUpdate=false;object.matrix.copy(matrix);
+  object.position.setFromMatrixPosition(matrix);object.matrixWorldNeedsUpdate=true;
+}
+function rememberGeometryFrame(){
+  baseCenter.copy(center);baseRadius=radius;
+  grid.matrixAutoUpdate=true;axes.matrixAutoUpdate=true;
+  grid.updateMatrix();axes.updateMatrix();
+  baseGridMatrix.copy(grid.matrix);baseAxesMatrix.copy(axes.matrix);
+}
 let geometryVisibility={geometry:true,faces:true,edges:true,isolatedEntities:null,hiddenFaces:[],isolatedFaces:null};
 function setGeometryVisibility(config){
   geometryVisibility={...geometryVisibility,...config};
@@ -47,18 +59,29 @@ function setGeometryVisibility(config){
   hover=null;recolor();
 }
 function applyTranslationPreview(){
-  const offset=new THREE.Vector3(...(translationPreview?.translation??[0,0,0]));
+  // The backend supplies one authoritative affine transform. Original vertex
+  // buffers never change, so repeated previews and scope changes cannot accrue.
+  const matrix=new THREE.Matrix4();
+  if(translationPreview?.matrix)matrix.fromArray(translationPreview.matrix);
   const whole=translationPreview?.scope==='domain';
-  const geometryOffset=whole?offset:new THREE.Vector3();
-  const change=geometryOffset.clone().sub(previewOffset);
-  center.add(change);camera.position.add(change);controls.target.add(change);
-  previewOffset.copy(geometryOffset);
-  for(const object of objects)object.position.copy(geometryOffset);
+  const geometryMatrix=whole?matrix:new THREE.Matrix4();
+  const delta=geometryMatrix.clone().multiply(previewMatrix.clone().invert());
+  const oldScale=previewMatrix.getMaxScaleOnAxis(),newScale=geometryMatrix.getMaxScaleOnAxis();
+  stopMotion();
+  camera.position.applyMatrix4(delta);controls.target.applyMatrix4(delta);
+  camera.up.transformDirection(delta);
+  camera.near*=newScale/oldScale;camera.far*=newScale/oldScale;
+  camera.updateProjectionMatrix();
+  center.copy(baseCenter).applyMatrix4(geometryMatrix);radius=baseRadius*newScale;
+  previewMatrix.copy(geometryMatrix);previewOffset.setFromMatrixPosition(geometryMatrix);
+  for(const object of objects)objectMatrix(object,geometryMatrix);
+  objectMatrix(grid,geometryMatrix.clone().multiply(baseGridMatrix));
+  objectMatrix(axes,geometryMatrix.clone().multiply(baseAxesMatrix));
   for(const object of sampleObjects){
     const affected=whole||translationPreview?.regions.includes(object.userData.label);
-    object.position.copy(affected?offset:new THREE.Vector3());
+    objectMatrix(object,affected?matrix:new THREE.Matrix4());
   }
-  controls.update();
+  scene.updateMatrixWorld(true);controls.update();
 }
 function setTranslationPreview(setup){translationPreview=setup;applyTranslationPreview();}
 function stopMotion(){const damping=controls.enableDamping;controls.enableDamping=false;controls.update();controls.enableDamping=damping;}
@@ -95,10 +118,10 @@ function appearance(config){
   palette={face:dark?0x6196ad:0x75a8b5,edge:dark?0xd0e4ec:0x304650};recolor();
 }
 function loadGeometry(data){
-  translationPreview=null;previewOffset.set(0,0,0);
+  translationPreview=null;previewOffset.set(0,0,0);previewMatrix.identity();
   for(const object of objects){scene.remove(object);object.traverse(part=>{part.geometry?.dispose();part.material?.dispose();});}
   objects=[];faces=[];edges=[];selected.clear();hover=null;down=null;documentId=data?.document??null;
-  if(!data){center.set(0,0,0);radius=15;grid.position.set(0,0,0);grid.scale.setScalar(1);axes.position.set(0,0,0);axes.scale.setScalar(1);orient(0);return;}
+  if(!data){center.set(0,0,0);radius=15;grid.position.set(0,0,0);grid.scale.setScalar(1);axes.position.set(0,0,0);axes.scale.setScalar(1);rememberGeometryFrame();orient(0);return;}
   const box=new THREE.Box3();
   for(const entity of data.entities){
     if(!entity.positions.length)continue;
@@ -121,7 +144,7 @@ function loadGeometry(data){
   box.getCenter(center);radius=Math.max(box.getSize(new THREE.Vector3()).length()*.6,1e-6);
   grid.position.copy(center);grid.position.z=box.min.z-radius*.005;grid.scale.setScalar(radius/8);
   axes.position.copy(box.min);axes.scale.setScalar(radius/8);
-  orient(data.dimension===2?1:0);recolor();
+  rememberGeometryFrame();orient(data.dimension===2?1:0);recolor();
 }
 function setMode(value){
   mode=value==='edge'?'edge':'face';hover=null;down=null;recolor();
@@ -230,11 +253,19 @@ function setCameraState(state){
   controls.target.fromArray(state.target);camera.near=state.near;camera.far=state.far;
   camera.updateProjectionMatrix();controls.update();notify(7);
 }
+function transformedPoint(object){
+  const positions=object.geometry.attributes.position;
+  return positions?.count?new THREE.Vector3().fromBufferAttribute(positions,0).applyMatrix4(object.matrix).toArray():null;
+}
 function diagnostics(){
   const gl=renderer.getContext(),extension=gl.getExtension('WEBGL_debug_renderer_info');
   return {renderer:gl.getParameter(extension?extension.UNMASKED_RENDERER_WEBGL:gl.RENDERER),
     vendor:gl.getParameter(extension?extension.UNMASKED_VENDOR_WEBGL:gl.VENDOR),
-    entityColours:Object.fromEntries(objects.map(o=>[key(o),`#${o.material.color.getHexString()}`])),version:gl.getParameter(gl.VERSION),lost:gl.isContextLost(),visibleFaces:faces.filter(o=>o.visible).length,visibleEdges:edges.filter(o=>o.visible).length,sampleColours:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,`#${o.material.color.getHexString()}`])),preview:translationPreview,sampleOffsets:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,o.position.toArray()])),geometryOffset:previewOffset.toArray(),selectionCount:selected.size,pointSize:sampleStyle.size,sampleVisible:sampleStyle.visible,visibleSampleCount:sampleObjects.reduce((n,o)=>n+(o.visible?o.geometry.attributes.position.count:0),0),sampleCount:sampleObjects.reduce((n,o)=>n+o.geometry.attributes.position.count,0)};
+    entityColours:Object.fromEntries(objects.map(o=>[key(o),`#${o.material.color.getHexString()}`])),version:gl.getParameter(gl.VERSION),lost:gl.isContextLost(),visibleFaces:faces.filter(o=>o.visible).length,visibleEdges:edges.filter(o=>o.visible).length,sampleColours:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,`#${o.material.color.getHexString()}`])),preview:translationPreview,sampleOffsets:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,o.position.toArray()])),geometryOffset:previewOffset.toArray(),geometryMatrix:previewMatrix.toArray(),
+    sampleMatrices:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,o.matrix.toArray()])),
+    firstSamplePoints:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,transformedPoint(o)])),
+    firstGeometryPoints:Object.fromEntries(objects.map(o=>[key(o),transformedPoint(o)])),
+    selectionCount:selected.size,pointSize:sampleStyle.size,sampleVisible:sampleStyle.visible,visibleSampleCount:sampleObjects.reduce((n,o)=>n+(o.visible?o.geometry.attributes.position.count:0),0),sampleCount:sampleObjects.reduce((n,o)=>n+o.geometry.attributes.position.count,0)};
 }
 window.geoViewer={setBoundaryRegions,cameraState,setCameraState,setTranslationPreview,orient,appearance,loadGeometry,setMode,setSelection,setGeometryVisibility,setSamples,setSampleStyle,diagnostics,reset:()=>orient(0)};
 renderer.domElement.addEventListener('webglcontextlost',event=>{event.preventDefault();window.geoReportFailure('Graphics context lost. Restart the application.');});

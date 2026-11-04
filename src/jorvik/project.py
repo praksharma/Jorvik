@@ -228,8 +228,7 @@ def validate_state(geometry, areas, state):
         bytes.fromhex(state['layout'])
     setup=state.get('parametrisation')
     if setup is not None:
-        if setup['schema_version']!=1 or setup['scope'] not in ('domain','regions') or setup['source_hash']!=geometry['source_hash']:
-            raise ValueError('Invalid parametrisation setup.')
-        values=np.asarray(setup['translation'],dtype=float)
-        if values.shape!=(3,) or not np.isfinite(values).all() or not set(setup['regions'])<=labels:
+        from .parametrisation import validate_setup
+        validate_setup(setup)
+        if setup['source_hash'] != geometry['source_hash'] or not set(setup['regions']) <= labels:
             raise ValueError('Invalid parametrisation references or values.')

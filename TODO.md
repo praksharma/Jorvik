@@ -224,7 +224,8 @@ are outside the initial release; use the verified neutral export formats instead
 ### Implemented first slice
 
 - [x] Separate workspace accessible below Sampled Areas, with four tabs.
-- [x] Single translation configuration: whole domain or selected-region augmentation.
+- [x] Single affine configuration: translation, rotation and positive scaling,
+      whole domain or selected-region augmentation; legacy translations still load.
 - [x] Explicit reversible preview from originals; preserve coordinates, visibility and colours.
 - [x] NetCDF/NPZ export with named parameter values and transformation provenance.
 - [x] Save/load lightweight setup; validate source geometry and region references.
@@ -233,22 +234,24 @@ are outside the initial release; use the verified neutral export formats instead
 
 - [ ] Add multiple named parameters with units, reference/default values, ranges,
       explicit value lists or counts, and unambiguous mapping to transformations.
-- [ ] Add rotation with axis, angle units and pivot; add positive uniform and
+- [x] Add rotation with axis, angle units and pivot; add positive uniform and
       non-uniform scaling with explicit origin/pivot.
-- [ ] Define transformation composition order and coordinate frame (world/local);
+- [x] Define fixed scale → rotate → translate order in the world coordinate frame;
       persist the order and frame and always evaluate from original coordinates.
-- [ ] Retain whole-domain transformations as the default consistent-domain mode;
+- [x] Retain whole-domain transformations as the default consistent-domain mode;
       label independent region transformations as augmentation with unverified
       consistency until domain-aware validation is available.
 - [ ] Allow explicit parameter-to-region bindings and multiple transformations on
       a region; define overlapping-region behaviour and shared-boundary consistency.
-- [ ] Reject non-finite values, singular transforms and non-positive scaling;
+- [x] Reject non-finite values, singular transforms and non-positive scaling;
       keep reflections out of the initial supported transform set.
-- [ ] Generate applicable boundary normals first, with orientation validation;
+- [x] Generate applicable boundary normals first, with orientation validation;
       rotate/scale normals with the normalized inverse transpose, preserving
       translation invariance. Never silently invent outward normals for open shells.
-- [ ] Document sampling-density changes after non-uniform scaling, and evaluate
-      surface/volume Jacobian weights where requested for downstream integration.
+- [ ] Retain source-plane frames for anisotropic transformation of planar boundary
+      co-normals; currently omit these arrays with an explicit unavailable reason.
+- [x] Document density changes after scaling and retain original point counts.
+- [ ] Evaluate surface/volume Jacobian weights for downstream integration.
 
 ### Configuration generation and constraints
 
@@ -267,8 +270,9 @@ are outside the initial release; use the verified neutral export formats instead
 
 ### Preview and execution
 
-- [ ] Extend reversible preview to rotation/scaling and regenerated geometry;
-      keep original CAD, datasets, region assignments and visibility intact.
+- [x] Extend reversible preview to rotation/scaling while keeping original CAD,
+      datasets, region assignments, camera and visibility intact.
+- [ ] Extend preview to regenerated CAD geometry when regeneration is implemented.
 - [x] Keep parameter edits lightweight: mark stale previews/results and require
       explicit Preview or Process configurations; never auto-run complete sweeps.
 - [ ] Three modes: Preview one configuration; Batch process all configurations
@@ -303,7 +307,7 @@ are outside the initial release; use the verified neutral export formats instead
 
 ### Parametric exports and persistence
 
-- [ ] Version the parametric schema independently of ordinary dataset exports.
+- [x] Version the parametric schema independently of ordinary dataset exports.
 - [ ] NetCDF4 backend and xarray DataTree: shared parameter values indexed by
       configuration, one group per region with coordinates `(configuration, point,
       xyz)`, entity tags, applicable normals and complete recipe/transform metadata.
@@ -333,7 +337,7 @@ are outside the initial release; use the verified neutral export formats instead
 
 ### Acceptance checks
 
-- [ ] Rotation/pivot and transform-order cases; inverse-transpose normals under
+- [x] Rotation/pivot and transform-order cases; inverse-transpose normals under
       non-uniform scaling; zero-motion and identity configurations.
 - [ ] Repeated preview, scope changes, Restore, Close and Escape never accumulate
       transforms or overwrite original geometry, samples or region visibility.

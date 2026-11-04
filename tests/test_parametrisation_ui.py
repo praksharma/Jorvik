@@ -1,4 +1,4 @@
-"""Real-renderer checks for explicit translation edits and reset lifecycle."""
+"""Transform controls, configuration loading and real preview reset lifecycle."""
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -82,8 +82,11 @@ class ParametrisationUiTest(unittest.TestCase):
                             self.assertEqual(current['sampleOffsets']['other'], [0, 0, 0])
                             dialog.reset_button.click()
                             self.assertEqual(dialog.setup(), {
-                                'schema_version': 1, 'scope': 'domain', 'regions': [],
-                                'translation': [0., 0., 0.], 'source_hash': window.geometry['source_hash']})
+                                'schema_version': 2, 'scope': 'domain', 'regions': [],
+                                'translation': [0., 0., 0.], 'rotation_axis': [0., 0., 1.],
+                                'rotation_angle': 0., 'angle_units': 'degrees', 'scale': [1., 1., 1.],
+                                'pivot': [0., 0., 0.], 'order': ['scale', 'rotate', 'translate'],
+                                'frame': 'world', 'source_hash': window.geometry['source_hash']})
                             self.assertIsNone(window.view.translation_preview)
                             self.assertIn('Setup reset', dialog.status.text())
                             generate.assert_not_called()
@@ -131,3 +134,88 @@ class ParametrisationUiTest(unittest.TestCase):
                         self.assertTrue(window.open_action.isEnabled())
             finally:
                 window.close()
+
+    def test_transform_controls_load_export_history_and_project(self):
+        from jorvik.parametrisation import transform_batches
+        from jorvik.project import load_project
+        from PySide6.QtWidgets import QMessageBox
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            window = MainWindow(QSettings(str(directory / 'settings.ini'), QSettings.Format.IniFormat))
+            window.show()
+            try:
+                self.wait_for(lambda: window.view.is_ready)
+                window.load_geometry(FIXTURE)
+                self.wait_for(lambda: window.import_process is None)
+                window.pick_entity(2, 1, False)
+                window.sampling.count.setValue(8); window.sampling.label.setText('wall')
+                window.sampling.start(); self.wait_for(lambda: window.sampling.process is None)
+                originals = deepcopy(window.sampling.batches)
+                window.open_parametrisation(); dialog = window.parametrisation_dialog
+                dialog.rotation_angle.setValue(90)
+                for spin, value in zip(dialog.scales, [2, 3, 4]): spin.setValue(value)
+                for spin, value in zip(dialog.pivots, [1, 0, 0]): spin.setValue(value)
+                for spin, value in zip(dialog.offsets, [.5, -.5, 0]): spin.setValue(value)
+                setup = dialog.setup()
+                self.assertEqual(setup['order'], ['scale', 'rotate', 'translate'])
+                self.assertEqual(setup['frame'], 'world')
+                dialog.preview(); dialog.preview()
+                self.assertEqual(window.view.translation_preview, setup)
+                self.assertEqual(window.sampling.batches, originals)
+                setup_path = directory / 'transform.json'
+                with patch('jorvik.parametrisation_panel.QFileDialog.getSaveFileName', return_value=(str(setup_path), '')):
+                    dialog.save()
+                self.assertEqual(json.loads(setup_path.read_text()), setup)
+                dialog.reset_setup()
+                self.assertEqual(dialog.setup()['scale'], [1, 1, 1])
+                self.assertEqual(dialog.setup()['pivot'], [0, 0, 0])
+                self.assertEqual(dialog.setup()['rotation_angle'], 0)
+                with patch('jorvik.parametrisation_panel.QFileDialog.getOpenFileName', return_value=(str(setup_path), '')):
+                    dialog.load()
+                self.assertEqual(dialog.setup(), setup)
+                output = directory / 'transformed.npz'
+                with patch('jorvik.parametrisation_panel.QFileDialog.getSaveFileName', return_value=(str(output), '')):
+                    dialog.export_configuration()
+                expected = transform_batches(originals, setup)
+                with np.load(output, allow_pickle=False) as data:
+                    np.testing.assert_allclose(data['wall'], expected[0]['coordinates'])
+                    metadata = json.loads(data['_gs_metadata'].item())
+                    self.assertEqual(metadata['parametrisation'], setup)
+                # A legacy translation setup uses identity rotation/scaling/pivot.
+                legacy = {'schema_version': 1, 'scope': 'domain', 'translation': [2., 0., 0.],
+                          'regions': [], 'source_hash': window.geometry['source_hash']}
+                legacy_path = directory / 'legacy.json'; legacy_path.write_text(json.dumps(legacy))
+                with patch('jorvik.parametrisation_panel.QFileDialog.getOpenFileName', return_value=(str(legacy_path), '')):
+                    dialog.load()
+                self.assertEqual(dialog.setup()['scale'], [1, 1, 1])
+                self.assertEqual(dialog.setup()['rotation_angle'], 0)
+                self.assertEqual(dialog.setup()['translation'], [2, 0, 0])
+                # Radians are accepted on load and displayed explicitly as degrees.
+                radians = dict(setup, rotation_angle=np.pi / 2, angle_units='radians')
+                dialog.apply_setup(radians)
+                self.assertAlmostEqual(dialog.rotation_angle.value(), 90)
+                dialog.apply_setup(setup); dialog.preview()
+                before = dialog.setup(); before_preview = deepcopy(window.view.translation_preview)
+                for fields in ({'rotation_axis': [0, 0, 0]}, {'scale': [0, 1, 1]},
+                               {'translation': [1e13, 0, 0]}, {'rotation_angle': 1e9},
+                               {'rotation_axis': [1e-9, 0, 0]}):
+                    bad = directory / 'invalid.json'; bad.write_text(json.dumps(dict(setup, **fields)))
+                    with self.subTest(fields=fields), patch('jorvik.parametrisation_panel.QFileDialog.getOpenFileName', return_value=(str(bad), '')), patch('jorvik.parametrisation_panel.QMessageBox.warning') as warning:
+                        dialog.load(); warning.assert_called_once()
+                        self.assertEqual(dialog.setup(), before)
+                        self.assertEqual(window.view.translation_preview, before_preview)
+                dialog.close()
+                self.wait_for(lambda: window.parametrisation_dialog is None)
+                self.assertEqual(window.parametrisation_setup, setup)
+                window.undo_edit(); self.assertIsNone(window.parametrisation_setup)
+                window.redo_edit(); self.assertEqual(window.parametrisation_setup, setup)
+                window.project_path = directory / 'transform.jorvik'
+                self.assertTrue(window.save_project())
+                self.assertEqual(load_project(window.project_path)[0]['state']['parametrisation'], setup)
+                window.open_parametrisation(); dialog = window.parametrisation_dialog
+                self.assertEqual(dialog.setup(), setup)
+                dialog.close()
+                self.assertEqual(window.sampling.batches, originals)
+            finally:
+                if window.parametrisation_dialog is not None: window.parametrisation_dialog.close()
+                with patch('jorvik.project_ui.QMessageBox.question', return_value=QMessageBox.StandardButton.Discard): window.close()

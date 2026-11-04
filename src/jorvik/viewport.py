@@ -7,6 +7,7 @@ from PySide6.QtWebChannel import QWebChannel
 from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from .theme import colors
+from .parametrisation import preview_payload
 
 
 class Bridge(QObject):
@@ -109,7 +110,7 @@ class Viewport(QWidget):
         self.call("setSelection", self.selection)
         self.call("setSamples", self.samples)
         self.call("setGeometryVisibility",self.geometry_visibility)
-        self.call("setTranslationPreview",self.translation_preview)
+        self.call("setTranslationPreview", preview_payload(self.translation_preview))
         if self.camera_state:
             self.call("setCameraState",self.camera_state)
 
@@ -134,8 +135,9 @@ class Viewport(QWidget):
         self.call('setBoundaryRegions', regions)
 
     def set_translation_preview(self, setup):
+        payload = preview_payload(setup)
         self.translation_preview = setup
-        self.call('setTranslationPreview', setup)
+        self.call('setTranslationPreview', payload)
 
     def set_camera_state(self, state):
         self.camera_state = state

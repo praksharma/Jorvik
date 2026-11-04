@@ -5,7 +5,7 @@
 This remains **0.1.0.dev0**, a development preview. The current release slice
 supports import/selection, user-defined boundary regions, labelled sampling,
 applicable outward normals, NetCDF/NPZ exports, project persistence and explicit
-translation previews. Region labels carry metadata; physics and solvers remain
+transform previews. Region labels carry metadata; physics and solvers remain
 outside the application.
 
 On 16 October 2026 the built wheel was installed into a separate environment

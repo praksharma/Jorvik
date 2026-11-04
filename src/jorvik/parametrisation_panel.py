@@ -2,8 +2,9 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QFormLayout,
     QComboBox, QDoubleSpinBox, QListWidget, QListWidgetItem, QLabel, QPushButton,
-    QHBoxLayout, QFileDialog, QMessageBox)
+    QHBoxLayout, QFileDialog, QMessageBox, QScrollArea)
 from pathlib import Path
+import math
 from .parametrisation import export_configuration, validate_setup, save_setup, load_setup
 
 
@@ -11,8 +12,8 @@ class ParametrisationDialog(QDialog):
     def __init__(self, window):
         super().__init__(window)
         self.window = window
-        self.setWindowTitle('Parametrisation — Translation')
-        self.resize(560, 480)
+        self.setWindowTitle('Parametrisation — Transform configuration')
+        self.resize(660, 650)
         self.setModal(False)
         self.source_hash = window.geometry['source_hash'] if window.geometry else None
         layout = QVBoxLayout(self)
@@ -20,27 +21,52 @@ class ParametrisationDialog(QDialog):
         layout.addWidget(self.tabs)
         parameters = QWidget(); form = QFormLayout(parameters)
         self.scope = QComboBox()
-        self.scope.addItem('Whole domain — consistent translation', 'domain')
+        self.scope.addItem('Whole domain — consistent transformation', 'domain')
         self.scope.addItem('Selected regions — dataset augmentation', 'regions')
         form.addRow('Scope', self.scope)
-        self.offsets = []
-        for axis in 'XYZ':
-            spin = QDoubleSpinBox(); spin.setDecimals(8); spin.setRange(-1e12, 1e12)
-            self.offsets.append(spin)
-            form.addRow(f'Translation {axis}', spin)
-        form.addRow(QLabel('Distances use the source geometry units.'))
+        def vector_row(label, name, defaults, low, high):
+            row = QHBoxLayout(); spins = []
+            for axis, value in zip('XYZ', defaults):
+                spin = QDoubleSpinBox(); spin.setDecimals(8); spin.setRange(low, high)
+                spin.setFixedWidth(120)
+                spin.setValue(value); spin.setObjectName(f'{name}_{axis.lower()}')
+                spin.setAccessibleName(f'{label} {axis}')
+                axis_label = QLabel(axis); axis_label.setFixedWidth(12)
+                row.addWidget(axis_label); row.addWidget(spin); spins.append(spin)
+            row.addStretch()
+            form.addRow(label, row)
+            return spins
+        self.offsets = vector_row('Translation', 'translation', [0, 0, 0], -1e12, 1e12)
+        self.rotation_axis = vector_row('Rotation axis', 'rotation_axis', [0, 0, 1], -1e6, 1e6)
+        self.rotation_angle = QDoubleSpinBox(); self.rotation_angle.setDecimals(8)
+        self.rotation_angle.setRange(-360000, 360000); self.rotation_angle.setSuffix(' °')
+        self.rotation_angle.setObjectName('rotation_angle'); self.rotation_angle.setAccessibleName('Rotation angle in degrees')
+        form.addRow('Rotation angle', self.rotation_angle)
+        self.scales = vector_row('Scale factors', 'scale', [1, 1, 1], 1e-8, 1e8)
+        self.pivots = vector_row('Pivot', 'pivot', [0, 0, 0], -1e12, 1e12)
+        instructions = QLabel('Order: scale → rotate → translate in world coordinates. '
+                              'Scale and rotation share the pivot. Distances use source geometry units; '
+                              'the rotation axis must be nonzero. Equal scale factors give uniform scaling.')
+        instructions.setWordWrap(True); form.addRow(instructions)
+        density = QLabel('Unequal scale factors can change point density on the transformed boundary. '
+                         'Exports do not add integration weights. Planar edge normals are omitted after '
+                         'unequal scaling when their direction cannot be verified; exports record the reason.')
+        density.setWordWrap(True); form.addRow(density)
         self.regions = QListWidget()
         for batch in window.sampling.batches:
             item = QListWidgetItem(batch['label'], self.regions)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked if batch['label'] == window.selected_area else Qt.CheckState.Unchecked)
+        self.regions.setMaximumHeight(140)
         form.addRow('Affected regions', self.regions)
         self.warning = QLabel(''); self.warning.setWordWrap(True); form.addRow(self.warning)
         self.scope.currentIndexChanged.connect(self.scope_changed)
         self.scope_changed()
-        self.tabs.addTab(parameters, 'Parameters')
+        parameter_scroll = QScrollArea(); parameter_scroll.setWidgetResizable(True)
+        parameter_scroll.setWidget(parameters)
+        self.tabs.addTab(parameter_scroll, 'Parameters')
         combinations = QWidget(); box = QVBoxLayout(combinations)
-        text = QLabel('One configuration uses the three translation values in Parameters.\n\nParameter ranges and Cartesian/LHS/Sobol sweeps will be added in a later stage.')
+        text = QLabel('One configuration uses the translation, rotation, scale and pivot values in Parameters.\n\nParameter ranges and Cartesian/LHS/Sobol sweeps will be added in a later stage.')
         text.setWordWrap(True); box.addWidget(text); box.addStretch()
         self.tabs.addTab(combinations, 'Combinations')
         processing = QWidget(); box = QVBoxLayout(processing)
@@ -58,7 +84,7 @@ class ParametrisationDialog(QDialog):
         self.export_button.clicked.connect(self.export_configuration); box.addWidget(self.export_button); box.addStretch()
         self.tabs.addTab(export, 'Export')
         layout.addWidget(self.status)
-        for spin in self.offsets:
+        for spin in [*self.offsets, *self.rotation_axis, self.rotation_angle, *self.scales, *self.pivots]:
             spin.valueChanged.connect(self.mark_changed)
         self.scope.currentIndexChanged.connect(self.mark_changed)
         self.regions.itemChanged.connect(self.mark_changed)
@@ -69,13 +95,34 @@ class ParametrisationDialog(QDialog):
         for title, callback in [('Save setup…', self.save), ('Load setup…', self.load), ('Close', self.close)]:
             button = QPushButton(title); button.clicked.connect(callback); buttons.addWidget(button)
         if window.parametrisation_setup:
-            setup = window.parametrisation_setup
-            self.source_hash = setup['source_hash']
-            self.scope.setCurrentIndex(self.scope.findData(setup['scope']))
-            for spin,value in zip(self.offsets,setup['translation']):spin.setValue(value)
-            for i in range(self.regions.count()):
-                item=self.regions.item(i)
-                item.setCheckState(Qt.CheckState.Checked if item.text() in setup['regions'] else Qt.CheckState.Unchecked)
+            self.apply_setup(window.parametrisation_setup)
+
+    def apply_setup(self, setup):
+        """Validate the complete configuration before restoring or changing controls."""
+        validate_setup(setup)
+        advanced = setup if setup['schema_version'] == 2 else {}
+        values = [
+            (self.offsets, setup['translation']),
+            (self.rotation_axis, advanced.get('rotation_axis', [0, 0, 1])),
+            (self.scales, advanced.get('scale', [1, 1, 1])),
+            (self.pivots, advanced.get('pivot', [0, 0, 0])),
+        ]
+        angle = advanced.get('rotation_angle', 0.)
+        if advanced.get('angle_units', 'degrees') == 'radians':
+            angle = math.degrees(angle)
+        assignments = [(spin, value) for spins, vector in values for spin, value in zip(spins, vector)]
+        assignments.append((self.rotation_angle, angle))
+        for spin, value in assignments:
+            if (not math.isfinite(value) or not spin.minimum() <= value <= spin.maximum()
+                    or abs(value - round(value, spin.decimals())) > max(1e-14, abs(value) * 1e-14)):
+                raise ValueError('A transformation value exceeds the range or precision supported by this workspace.')
+        self.restore()
+        self.scope.setCurrentIndex(self.scope.findData(setup['scope']))
+        for spin, value in assignments: spin.setValue(value)
+        for i in range(self.regions.count()):
+            item = self.regions.item(i)
+            item.setCheckState(Qt.CheckState.Checked if item.text() in setup['regions'] else Qt.CheckState.Unchecked)
+        self.source_hash = setup['source_hash']
 
 
     def mark_changed(self):
@@ -89,20 +136,27 @@ class ParametrisationDialog(QDialog):
         self.restore()
         self.source_hash = self.window.geometry['source_hash'] if self.window.geometry else None
         self.scope.setCurrentIndex(self.scope.findData('domain'))
-        for spin in self.offsets:
-            spin.setValue(0)
+        for spin in [*self.offsets, *self.pivots]: spin.setValue(0)
+        for spin, value in zip(self.rotation_axis, [0, 0, 1]): spin.setValue(value)
+        self.rotation_angle.setValue(0)
+        for spin in self.scales: spin.setValue(1)
         for i in range(self.regions.count()):
             self.regions.item(i).setCheckState(Qt.CheckState.Unchecked)
-        self.status.setText('Setup reset to whole domain with zero translation. Preview or process/export explicitly.')
+        self.status.setText('Setup reset to the whole-domain identity transformation. Preview or process/export explicitly.')
 
     def scope_changed(self):
         regions = self.scope.currentData() == 'regions'
         self.regions.setEnabled(regions)
-        self.warning.setText('Only checked point clouds move. CAD geometry stays fixed; boundary/interior consistency is unverified.' if regions else 'Geometry display and all sampled regions translate together. The source CAD file is unchanged.')
+        self.warning.setText('Only checked point clouds move. CAD geometry stays fixed; boundary/interior consistency is unverified.' if regions else 'Geometry display and all sampled regions transform together. The source CAD file is unchanged.')
 
     def setup(self):
-        return {'schema_version': 1, 'scope': self.scope.currentData(),
+        return {'schema_version': 2, 'scope': self.scope.currentData(),
                 'translation': [spin.value() for spin in self.offsets],
+                'rotation_axis': [spin.value() for spin in self.rotation_axis],
+                'rotation_angle': self.rotation_angle.value(), 'angle_units': 'degrees',
+                'scale': [spin.value() for spin in self.scales],
+                'pivot': [spin.value() for spin in self.pivots],
+                'order': ['scale', 'rotate', 'translate'], 'frame': 'world',
                 'regions': [self.regions.item(i).text() for i in range(self.regions.count())
                             if self.regions.item(i).checkState() == Qt.CheckState.Checked],
                 'source_hash': self.source_hash}
@@ -135,7 +189,7 @@ class ParametrisationDialog(QDialog):
         try:
             setup = self.setup()
             validate_setup(setup, self.window.sampling.batches)
-            filename, selected = QFileDialog.getSaveFileName(self, 'Export translated configuration', 'translated_samples.nc', 'NetCDF (*.nc);;NumPy archive (*.npz)')
+            filename, selected = QFileDialog.getSaveFileName(self, 'Export transformed configuration', 'transformed_samples.nc', 'NetCDF (*.nc);;NumPy archive (*.npz)')
             if not filename:
                 return
             path = Path(filename)
@@ -161,16 +215,7 @@ class ParametrisationDialog(QDialog):
             try:
                 setup = load_setup(filename)
                 validate_setup(setup, self.window.sampling.batches)
-                # Check representable values before changing any controls.
-                if any(abs(value) > 1e12 for value in setup['translation']):
-                    raise ValueError('Translation exceeds the supported range.')
-                self.restore()
-                self.scope.setCurrentIndex(self.scope.findData(setup['scope']))
-                for spin, value in zip(self.offsets, setup['translation']): spin.setValue(value)
-                for i in range(self.regions.count()):
-                    item = self.regions.item(i)
-                    item.setCheckState(Qt.CheckState.Checked if item.text() in setup['regions'] else Qt.CheckState.Unchecked)
-                self.source_hash = setup['source_hash']
+                self.apply_setup(setup)
                 self.status.setText('Setup loaded. Preview or process explicitly.')
             except (ValueError, TypeError, OSError) as error:
                 self.report_error(error)

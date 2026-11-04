@@ -148,7 +148,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.boundary_button.clicked.connect(self.open_boundary_regions)
         sidebar_layout.addWidget(self.boundary_button)
         self.parametrisation_button = QPushButton('Parametrisation…')
-        self.parametrisation_button.setToolTip('Configure, preview and export translations of sampled datasets')
+        self.parametrisation_button.setToolTip('Configure, preview and export translation, rotation and scaling of sampled datasets')
         self.parametrisation_button.clicked.connect(self.open_parametrisation)
         sidebar_layout.addWidget(self.parametrisation_button)
         self.parametrisation_dialog = None
@@ -238,7 +238,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.parametrisation_dialog.show()
         self.refresh_project_actions()
 
-    @undoable('change translation setup')
+    @undoable('change transform setup')
     def finish_parametrisation(self):
         dialog = self.parametrisation_dialog
         self.parametrisation_dialog = None

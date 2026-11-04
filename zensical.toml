@@ -16,7 +16,7 @@ nav = [
     { "Outward normals" = "guide/normals.md" },
     { "Datasets and editing" = "guide/datasets.md" },
     { "Projects and recovery" = "guide/projects.md" },
-    { "Translation previews" = "guide/parametrisation.md" },
+    { "Transform previews" = "guide/parametrisation.md" },
     { "Graphics troubleshooting" = "guide/graphics.md" },
   ] },
   { "Data reference" = [

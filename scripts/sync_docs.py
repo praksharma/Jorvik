@@ -14,7 +14,7 @@ PAGES = [
     ('guide/normals.md', 'Boundary normals', ['Boundary normals']),
     ('guide/datasets.md', 'Datasets and editing', ['Sampled Areas tree', 'Edit a sampled area', 'Undo, redo and dataset editing']),
     ('guide/projects.md', 'Projects and recovery', ['Save and reopen projects']),
-    ('guide/parametrisation.md', 'Translation previews', ['Parametrisation: first translation slice']),
+    ('guide/parametrisation.md', 'Transform previews', ['Parametrisation: transform configuration']),
     ('guide/graphics.md', 'Graphics troubleshooting', ['NVIDIA rendering on Linux/Wayland']),
     ('reference/exports.md', 'NetCDF, NPZ and xarray', ['Exporting samples', 'Schema version 2']),
     ('development/architecture.md', 'Architecture and scope', ['Architecture', 'Agreed product scope']),
