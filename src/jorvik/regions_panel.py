@@ -1,4 +1,5 @@
 """Explicit creation and editing of prepared boundary assignments."""
+from .history import undoable
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QListWidget,
@@ -96,6 +97,7 @@ class BoundaryRegionsDialog(QDialog):
         self.delete_button.setEnabled(True); self.select_button.setEnabled(True)
         self.details.setText(f"{len(region['entities'])} members: " + ', '.join(f'{d}:{t}' for d, t in region['entities']) + '\nOverlaps use the first-created region colour in the viewport; selection highlights every member.')
 
+    @undoable('save boundary region')
     def save_region(self):
         members = [self.entities.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.entities.count())
                    if self.entities.item(i).checkState() == Qt.CheckState.Checked]
@@ -110,6 +112,7 @@ class BoundaryRegionsDialog(QDialog):
         except (ValueError, TypeError) as error:
             QMessageBox.warning(self, 'Boundary region', str(error))
 
+    @undoable('delete boundary region')
     def delete_region(self):
         if self.identity is None: return
         self.window.boundary_regions = [r for r in self.window.boundary_regions if r['id'] != self.identity]

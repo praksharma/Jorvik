@@ -12,7 +12,7 @@ PAGES = [
     ('guide/regions.md', 'Boundary regions', ['User-defined boundary regions']),
     ('guide/sampling.md', 'Sampling and accuracy', ['Sampling', 'Geometry and accuracy', 'Previews and generation lifecycle']),
     ('guide/normals.md', 'Boundary normals', ['Boundary normals']),
-    ('guide/datasets.md', 'Datasets and editing', ['Sampled Areas tree', 'Edit a sampled area']),
+    ('guide/datasets.md', 'Datasets and editing', ['Sampled Areas tree', 'Edit a sampled area', 'Undo, redo and dataset editing']),
     ('guide/projects.md', 'Projects and recovery', ['Save and reopen projects']),
     ('guide/parametrisation.md', 'Translation previews', ['Parametrisation: first translation slice']),
     ('guide/graphics.md', 'Graphics troubleshooting', ['NVIDIA rendering on Linux/Wayland']),

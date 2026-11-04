@@ -388,3 +388,12 @@ are outside the initial release; use the verified neutral export formats instead
       prevent nested close handlers from opening duplicate prompts.
 - [x] Test real process exit, deferred close, completed save and Cancel behaviour;
       manually verify Ctrl+C in automatic NVIDIA and software rendering modes.
+
+## Session editing history
+
+- [x] Undo/redo for dataset generation, regeneration, renaming, colours, clearing,
+      duplication/deletion, boundary-region edits and saved translation setup.
+- [x] Edit-menu shortcuts, labelled actions, 30-edit history, redo branching,
+      busy-state locks, document reset and saved-content dirty-state checks.
+- [x] Share immutable numeric buffers across snapshots; restore dataset visibility,
+      selection, isolation and parameter references without rerunning generation.

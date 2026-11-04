@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+from .history import undoable
 from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QComboBox,
     QSpinBox, QLineEdit, QLabel, QPushButton, QHBoxLayout, QCheckBox, QMessageBox, QSlider, QScrollArea, QLayout)
@@ -218,6 +219,7 @@ class SamplingPanel(QWidget):
     def generate_request(self, request, replace_label=None):
         if self.process or self.window.import_process or self.window.saving_project or self.window.project_io is not None:
             return
+        self.history_before_generation = self.window.edit_snapshot()
         process = QProcess(self)
         self.process = process
         self.cancelled = False
@@ -282,6 +284,7 @@ class SamplingPanel(QWidget):
             self.summary.setText('Generation failed. Existing datasets retained.')
             QMessageBox.warning(self, 'Sampling failed', str(error))
         finally:
+            self.window.record_edit('regenerate dataset' if self.replace_label else 'generate dataset', self.history_before_generation)
             process.deleteLater()
 
     def stop(self):
@@ -296,6 +299,7 @@ class SamplingPanel(QWidget):
             process.kill()
             process.waitForFinished(2000)
 
+    @undoable('clear datasets')
     def clear_batches(self):
         self.window.parametrisation_setup = None
         self.batches.clear()

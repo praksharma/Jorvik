@@ -19,6 +19,7 @@ class ProjectActions(RecoveryActions):
         self.open_project_action.setEnabled(not busy)
         self.save_project_action.setEnabled(not busy)
         self.save_project_as_action.setEnabled(not busy)
+        self.refresh_history_actions()
 
     def project_state(self, camera=None):
         panel=self.sampling

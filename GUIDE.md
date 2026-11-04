@@ -556,7 +556,33 @@ Validation covers multicore HXT interior membership and methods, serial fixture
 reproducibility, unchanged saved baseline coordinates/tags, and GUI generation,
 cancellation, visibility and export with the default Multicore mode.
 
-### Face and sampled-area context menus
+### Undo, redo and dataset editing
+
+The Edit menu provides **Undo** (`Ctrl+Z`) and **Redo** (`Ctrl+Shift+Z` or
+`Ctrl+Y`). Session history retains the last 30 edits: sampling generation and
+regeneration (including cancelled/failed recipe entries), dataset renaming and
+colour changes, duplication, deletion, clearing datasets, saved boundary-region
+edits, and translation-setup changes when closing the parametrisation workspace.
+Undo restores affected dataset visibility, selection/isolation and parameter
+bindings. New edits after undo discard the redo branch. Saving keeps history;
+undoing back to saved content clears the unsaved-change state.
+
+Right-click a sampled dataset and choose **Duplicate dataset** to create a
+uniquely named copy, or **Delete dataset** to remove just that entry. Duplication
+shares immutable coordinate/tag/normal storage while keeping metadata separate;
+it does not resample the CAD. Delete and Clear generated datasets are undoable.
+Deleting the last region bound by a translation setup clears that setup; undo
+restores it together with its datasets.
+
+History is local to the open document and is not stored in `.jorvik` archives.
+Opening geometry or a project starts fresh history. Undo/redo is unavailable
+during import, generation, project I/O and region/translation dialogs. Camera
+navigation, ordinary visibility changes, standalone sampling-control edits and
+unsaved dialog fields are not separate history entries. Numeric point buffers
+are shared between history snapshots, but retaining older generated datasets can
+still use memory until their history entries expire or the document is replaced.
+
+## Face and sampled-area context menus
 
 Right-click a face in the geometry tree to hide the selected faces, isolate them,
 or show all faces again. Right-clicking an unselected face selects it; right-clicking

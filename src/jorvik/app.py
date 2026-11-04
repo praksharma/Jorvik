@@ -17,9 +17,10 @@ from .sampled_areas import SampledAreasTree, area_details
 from .icons import tool_icon
 from .cad_import import FILE_FILTER
 from .project_ui import ProjectActions
+from .history import HistoryActions, undoable
 
 
-class MainWindow(ProjectActions, QMainWindow):
+class MainWindow(HistoryActions, ProjectActions, QMainWindow):
     def __init__(self, settings=None):
         super().__init__()
         self.settings = settings if settings is not None else QSettings("Jorvik", "Jorvik")
@@ -189,6 +190,7 @@ class MainWindow(ProjectActions, QMainWindow):
             self.restoreState(self.settings.value("layout"))
         self.refresh_icons()
         self.refresh_project_actions()
+        self.initialize_history()
         self.initialize_recovery()
 
     def open_boundary_regions(self):
@@ -236,6 +238,7 @@ class MainWindow(ProjectActions, QMainWindow):
         self.parametrisation_dialog.show()
         self.refresh_project_actions()
 
+    @undoable('change translation setup')
     def finish_parametrisation(self):
         dialog = self.parametrisation_dialog
         self.parametrisation_dialog = None
@@ -381,6 +384,8 @@ class MainWindow(ProjectActions, QMainWindow):
         menu.addAction('Rename…', lambda: self.rename_area(label)).setEnabled(not self.sampling.process)
         menu.addAction('Change colour…', lambda: self.change_area_colour(label)).setEnabled(status == 'Generated')
         menu.addAction('Edit…', lambda: self.edit_area(label)).setEnabled(not self.sampling.process and not self.parametrisation_dialog)
+        menu.addAction('Duplicate dataset', lambda: self.duplicate_area(label)).setEnabled(status == 'Generated' and not self.project_busy())
+        menu.addAction('Delete dataset', lambda: self.delete_area(label)).setEnabled(not self.project_busy())
         menu.addSeparator()
         visible = menu.addAction('Show points')
         visible.setCheckable(True)
@@ -412,8 +417,9 @@ class MainWindow(ProjectActions, QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
+    @undoable('rename dataset')
     def rename_area(self, label):
-        if self.sampling.process:
+        if self.project_busy():
             return
         name, accepted = QInputDialog.getText(self, 'Rename sampled area', 'Dataset label:', text=label)
         if not accepted:
@@ -432,7 +438,9 @@ class MainWindow(ProjectActions, QMainWindow):
         self.sampling.label.setText(self.sampling.next_available_label(self.sampling.label.text()))
         self.sampling.refresh_preview()
 
+    @undoable('change dataset colour')
     def change_area_colour(self, label):
+        if self.project_busy(): return
         area, status = self.sampled_areas.areas[label]
         if status != 'Generated':
             return
@@ -577,6 +585,7 @@ class MainWindow(ProjectActions, QMainWindow):
             process.deleteLater()
 
     def show_geometry(self, geometry):
+        self._history_suspended = True
         self.clear_recovery()
         self.geometry = geometry
         self.boundary_regions = []
@@ -599,6 +608,7 @@ class MainWindow(ProjectActions, QMainWindow):
             self.sampling.generate.setEnabled(False)
             self.sampling.summary.setText('Open geometry to begin.')
             self.setWindowTitle('Jorvik — Untitled')
+            self.reset_history()
             self.mark_project_clean()
             return
         parent = QTreeWidgetItem(self.tree, [geometry["name"]])
@@ -634,6 +644,7 @@ class MainWindow(ProjectActions, QMainWindow):
         faces = sum(e["dimension"] == 2 for e in geometry["entities"])
         edges = sum(e["dimension"] == 1 for e in geometry["entities"])
         self.statusBar().showMessage(f"{geometry['name']} | {faces} faces · {edges} edges | {self.view.mode.title()} selection")
+        self.reset_history()
         self.mark_project_clean()
 
     def set_selection_mode(self, mode):
