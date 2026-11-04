@@ -174,6 +174,45 @@ for line in (run / "results.jsonl").read_text().splitlines():
             # Use region['label'] and its independent N×3 coordinates.
 ```
 
+## Reading sweeps for training
+
+`jorvik.sweep_results.inspect_sweep(path)` checks the run manifest, scalar plan,
+result counters and completed-file presence without loading point arrays.
+`iter_sweep_datasets(path)` then yields one completed configuration at a time,
+validating each shard's source/setup/parameter provenance, shapes, finite values,
+entity tags, label/count mapping and applicable unit normals. These are structural
+checks; sweep files do not currently carry cryptographic content checksums.
+Both APIs reject incomplete/error runs by default. Pass `allow_partial=True`
+explicitly to use successful files from cancelled, failed or interrupted runs.
+Only an interrupted `running` journal's malformed final unterminated line can
+be ignored; malformed earlier records remain errors. No resume is performed.
+
+```python
+from jorvik.sweep_results import iter_sweep_datasets, training_arrays
+
+for configuration in iter_sweep_datasets("parameter_sweep"):
+    columns = ["x", "y", "z", *configuration["parameters"]]
+    arrays = training_arrays(configuration)
+    for label, inputs in arrays.items():
+        # Each region has its own N×(3+P) array, with columns ordered as above.
+        pass
+    # Normals, entity tags and sampling metadata remain in configuration['datasets'].
+```
+
+Parameter columns are expanded only by `training_arrays`, leaving persisted
+parameter values stored once per configuration. Boundary/interior datasets are
+not merged, padded or assigned physical conditions. Readers close each file
+before yielding independent arrays. Consume the iterator incrementally to bound
+memory; converting it to a list intentionally retains all loaded configurations.
+
+From a checkout, inspect a run without modifying it:
+
+```sh
+uv run python tools/inspect_sweep.py parameter_sweep --verify
+# Explicit partial-output inspection:
+uv run python tools/inspect_sweep.py parameter_sweep --allow-partial --verify
+```
+
 Size estimates concern numeric payloads, not peak Python/Qt memory or compressed
 file size. Memory still scales with the original datasets and one transformed
 configuration. Multiple concurrent workers, within-file cancellation, automatic

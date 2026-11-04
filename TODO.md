@@ -317,8 +317,11 @@ are outside the initial release; use the verified neutral export formats instead
       xyz)`, entity tags, applicable normals and complete recipe/transform metadata.
 - [ ] Use stable safe group/key identifiers plus an original-label map; arbitrary
       labels, slashes and reserved names must round-trip without collisions.
-- [ ] Write parameter values once; expose `(x,y,z,mu...)` training-array construction
-      without requiring repeated parameter columns in persistent storage.
+- [x] Write parameter values once per shard and provide streaming sweep readers
+      plus `(x,y,z,mu...)` array construction with independent region counts.
+- [x] Metadata/run inspection and per-file structural validation; explicit partial-run
+      opt-in and a read-only inspection command.
+- [ ] Add cryptographic shard checksums for content-integrity verification.
 - [ ] Incremental/chunked disk writes, compression and configurable precision;
       do not assume xarray append mode automatically extends configuration arrays.
 - [ ] Handle varying point counts explicitly through ragged representations or
