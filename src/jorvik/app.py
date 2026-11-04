@@ -258,6 +258,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.refresh_project_actions()
         if dialog is not None:
             dialog.deleteLater()
+        QTimer.singleShot(0, self.retry_pending_close)
 
     def tool_action(self, title, icon, tooltip, callback=None):
         action = self.toolbar.addAction(title)
@@ -717,6 +718,12 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
 
     def closeEvent(self, event):
         if self._handling_close:
+            event.ignore()
+            return
+        if self.parametrisation_dialog is not None and self.parametrisation_dialog.sweep_panel.running:
+            self._close_requested = True
+            self.parametrisation_dialog.reject()
+            self.statusBar().showMessage('Cancelling the configuration export before closing…')
             event.ignore()
             return
         if self.saving_project or self.project_io is not None:

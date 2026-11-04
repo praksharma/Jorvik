@@ -1,5 +1,5 @@
 """Explicit single-configuration processing workspace; no automatic computation."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QFormLayout,
     QComboBox, QDoubleSpinBox, QListWidget, QListWidgetItem, QLabel, QPushButton,
     QHBoxLayout, QFileDialog, QMessageBox, QScrollArea)
@@ -7,6 +7,7 @@ from pathlib import Path
 import math
 from copy import deepcopy
 from .parameter_design_panel import ParameterDesignPanel
+from .sweep_panel import SweepExportPanel
 from .parametrisation import export_configuration, validate_setup, save_setup, load_setup
 
 
@@ -17,6 +18,7 @@ class ParametrisationDialog(QDialog):
         self.setWindowTitle('Parametrisation — Transform configuration')
         self.resize(660, 650)
         self.setModal(False)
+        self._pending_finish = None
         self.source_hash = window.geometry['source_hash'] if window.geometry else None
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
@@ -78,9 +80,14 @@ class ParametrisationDialog(QDialog):
         text.setWordWrap(True); box.addWidget(text)
         self.preview_button = QPushButton('Preview configuration'); self.preview_button.clicked.connect(self.preview)
         box.addWidget(self.preview_button)
-        button = QPushButton('Restore original view'); button.clicked.connect(self.restore); box.addWidget(button)
+        self.restore_button = QPushButton('Restore original view'); self.restore_button.clicked.connect(self.restore); box.addWidget(self.restore_button)
+        self.sweep_panel = SweepExportPanel(window, self.sweep_snapshot)
+        self.sweep_panel.busyChanged.connect(self.sweep_busy_changed)
+        box.addWidget(self.sweep_panel)
         self.status = QLabel('Not processed.'); self.status.setWordWrap(True); box.addStretch()
-        self.tabs.addTab(processing, 'Processing')
+        processing_scroll = QScrollArea(); processing_scroll.setWidgetResizable(True)
+        processing_scroll.setWidget(processing)
+        self.tabs.addTab(processing_scroll, 'Processing')
         export = QWidget(); box = QVBoxLayout(export)
         text = QLabel('Process the current configuration from the original samples and export every region to NetCDF or NPZ. Parameter values, scope and original sampling metadata are retained. Hidden regions are included.')
         text.setWordWrap(True); box.addWidget(text)
@@ -96,9 +103,11 @@ class ParametrisationDialog(QDialog):
         self.reset_button = QPushButton('Reset setup')
         self.reset_button.clicked.connect(self.reset_setup)
         layout.addWidget(self.reset_button)
+        self.setup_buttons = []
         buttons = QHBoxLayout(); layout.addLayout(buttons)
         for title, callback in [('Save setup…', self.save), ('Load setup…', self.load), ('Close', self.close)]:
             button = QPushButton(title); button.clicked.connect(callback); buttons.addWidget(button)
+            if title != 'Close': self.setup_buttons.append(button)
         if window.parametrisation_setup:
             self.apply_setup(window.parametrisation_setup)
 
@@ -197,10 +206,33 @@ class ParametrisationDialog(QDialog):
         validate_setup(setup, self.window.sampling.batches)
         return setup
 
+    def sweep_snapshot(self):
+        base = self.setup()
+        validate_setup(base, self.window.sampling.batches)
+        records = self.design_panel.generated_records(self._base_setup())
+        return base, records
+
+    def sweep_busy_changed(self, busy):
+        for index in (0, 1, 3): self.tabs.widget(index).setEnabled(not busy)
+        for widget in [self.preview_button, self.restore_button, self.reset_button, *self.setup_buttons]:
+            widget.setEnabled(not busy)
+        if not busy and self._pending_finish is not None:
+            result, self._pending_finish = self._pending_finish, None
+            QTimer.singleShot(0, lambda: self.done(result))
+
+    def defer_finish(self, result):
+        if self.sweep_panel.running:
+            self._pending_finish = result
+            self.sweep_panel.cancel()
+            self.status.setText('Finishing the current output, then closing the workspace…')
+            return True
+        return False
+
     def report_error(self, error):
         QMessageBox.warning(self, 'Parametrisation', str(error))
 
     def preview(self):
+        if self.sweep_panel.running: return
         try:
             setup = self.active_setup()
             self.window.view.set_translation_preview(setup)
@@ -213,14 +245,19 @@ class ParametrisationDialog(QDialog):
         self.status.setText('Original view restored.')
 
     def done(self, result):
+        if self.defer_finish(result): return
         self.restore()
         super().done(result)
 
     def closeEvent(self, event):
+        if self.defer_finish(0):
+            event.ignore()
+            return
         self.restore()
         super().closeEvent(event)
 
     def export_configuration(self):
+        if self.sweep_panel.running: return
         try:
             setup = self.active_setup()
             filename, selected = QFileDialog.getSaveFileName(self, 'Export transformed configuration', 'transformed_samples.nc', 'NetCDF (*.nc);;NumPy archive (*.npz)')

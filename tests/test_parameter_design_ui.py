@@ -131,3 +131,85 @@ class ParameterDesignUiTest(unittest.TestCase):
         # Scale references cannot be zero, so invalid settings remain a visible draft.
         self.assertIn('needs attention', panel.summary.text())
         self.assertFalse(panel.preview_button.isEnabled())
+
+    def test_search_preserves_ids_values_pages_and_full_export_records(self):
+        panel, base, _ = self.panel()
+        config = design(parameters=[parameter('Δ offset [source]', count=450, stop=449)])
+        panel.apply_design(config); panel.generate()
+        fingerprint = panel._fingerprint
+        declared = panel.design()
+        records = panel.generated_records(base)
+        self.assertEqual(len(records), 450)
+        self.assertIs(records[0], panel._records[0])
+        changed = QSignalSpy(panel.changed)
+        preview = QSignalSpy(panel.requestPreview)
+        with patch('jorvik.parameter_design.generate_configurations') as generate:
+            panel.search_edit.setText('CONFIGURATION_000401')
+            self.assertEqual(panel.configurations.rowCount(), 1)
+            self.assertEqual(panel.selected_setup(base)['design_configuration']['id'], 'configuration_000401')
+            self.assertEqual(panel.selected_setup(base)['translation'][0], 400.)
+            self.assertTrue(panel.preview_button.isEnabled())
+            self.assertIn('1 matches', panel.page_info.text())
+            # Full-precision numeric text is searchable even though display uses .10g.
+            panel.search_edit.setText('449.0')
+            self.assertEqual(panel.configurations.rowCount(), 1)
+            self.assertEqual(panel.selected_setup(base)['design_configuration']['id'], 'configuration_000450')
+            self.assertEqual(panel.configurations.item(0, 1).text(), '449')
+            # A literal bracket and Unicode name do not invoke a regular expression.
+            panel.search_edit.setText('δ OFFSET [source]')
+            self.assertEqual(panel.configurations.rowCount(), 200)
+            self.assertEqual(panel.page.maximum(), 3)
+            panel.page.setValue(3)
+            self.assertEqual(panel.configurations.rowCount(), 50)
+            panel.configurations.setCurrentCell(49, 0)
+            self.assertEqual(panel.selected_setup(base)['translation'][0], 449.)
+            panel.search_edit.setText('no such configuration')
+            self.assertEqual(panel.configurations.rowCount(), 0)
+            self.assertFalse(panel.preview_button.isEnabled())
+            self.assertFalse(panel.export_button.isEnabled())
+            self.assertFalse(panel.page.isEnabled())
+            self.assertIn('0 matches', panel.page_info.text())
+            with self.assertRaisesRegex(ValueError, 'Select a configuration'):
+                panel.selected_setup(base)
+            # Search only changes the view: an all-design export still has every row.
+            self.assertEqual(panel.generated_records(base), records)
+            panel.search_edit.clear()
+            self.assertEqual(panel.page.value(), 1)
+            self.assertEqual(panel.page.maximum(), 3)
+            self.assertEqual(panel.configurations.rowCount(), 200)
+            self.assertEqual(panel.selected_setup(base)['design_configuration']['id'], 'configuration_000001')
+            generate.assert_not_called()
+        self.assertEqual(changed.count(), 0)
+        self.assertEqual(preview.count(), 0)
+        self.assertEqual(panel._fingerprint, fingerprint)
+        self.assertEqual(panel.design(), declared)
+        panel.parameters.item(0, 4).setText('450')
+        with self.assertRaisesRegex(ValueError, 'stale'): panel.generated_records(base)
+        panel.apply_design(None)
+        with self.assertRaisesRegex(ValueError, 'Enable a parameter design'):
+            panel.generated_records(base)
+
+    def test_filtered_pagination_maps_back_to_original_records(self):
+        panel, base, _ = self.panel()
+        # Matching every name keeps more than one page while still exercising the
+        # index-map path; ID filtering then moves to a nonzero original offset.
+        panel.apply_design(design(parameters=[parameter(count=450, stop=449)]))
+        panel.generate(); panel.search_edit.setText('configuration_0004')
+        self.assertEqual(panel.configurations.rowCount(), 51)
+        self.assertEqual(panel.selected_setup(base)['translation'][0], 399.)
+        self.assertEqual(panel.selected_setup(base)['design_configuration']['id'], 'configuration_000400')
+        panel.configurations.setCurrentCell(50, 0)
+        self.assertEqual(panel.selected_setup(base)['translation'][0], 449.)
+        self.assertEqual(len(panel.generated_records(base)), 450)
+        base['pivot'][0] = 2.
+        with self.assertRaisesRegex(ValueError, 'stale'): panel.generated_records(base)
+        base['pivot'][0] = 0.
+        panel.apply_design(design(parameters=[parameter(count=1000, stop=999)]))
+        panel.generate(); panel.search_edit.setText('2')
+        matching_values = [value for value in range(1000) if '2' in str(value) or '2' in str(value + 1)]
+        self.assertGreater(len(matching_values), panel.PAGE_SIZE)
+        panel.page.setValue(panel.page.maximum())
+        panel.configurations.setCurrentCell(panel.configurations.rowCount() - 1, 0)
+        selected = panel.selected_setup(base)
+        self.assertEqual(selected['translation'][0], matching_values[-1])
+        self.assertEqual(selected['design_configuration']['id'], f'configuration_{matching_values[-1] + 1:06d}')

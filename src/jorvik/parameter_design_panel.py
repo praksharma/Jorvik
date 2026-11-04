@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QCheckBox, QComboBox,
     QSpinBox, QDoubleSpinBox, QPushButton, QLabel, QTableWidget,
-    QTableWidgetItem, QAbstractItemView, QMessageBox,
+    QTableWidgetItem, QAbstractItemView, QMessageBox, QLineEdit,
 )
 
 
@@ -25,6 +25,7 @@ class ParameterDesignPanel(QWidget):
         self.base_setup = base_setup
         self._building = False
         self._records = []
+        self._filtered_indices = []
         self._fingerprint = None
         layout = QVBoxLayout(self)
         self.enabled_check = QCheckBox('Use a parameter design')
@@ -73,6 +74,12 @@ class ParameterDesignPanel(QWidget):
         self.summary = QLabel(); self.summary.setWordWrap(True)
         self.summary.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.summary)
+        self.search_edit = QLineEdit()
+        self.search_edit.setObjectName('configuration_search')
+        self.search_edit.setPlaceholderText('Search configuration IDs, parameter names or values')
+        self.search_edit.setAccessibleName('Search configurations')
+        self.search_edit.setClearButtonEnabled(True)
+        layout.addWidget(self.search_edit)
         self.configurations = QTableWidget(0, 1)
         self.configurations.setHorizontalHeaderLabels(['Configuration'])
         self.configurations.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -101,6 +108,7 @@ class ParameterDesignPanel(QWidget):
         self.method.currentIndexChanged.connect(self._settings_changed)
         self.seed.valueChanged.connect(self._settings_changed)
         self.count.valueChanged.connect(self._settings_changed)
+        self.search_edit.textChanged.connect(self._filter_records)
         self.page.valueChanged.connect(self._render_page)
         self.configurations.currentCellChanged.connect(self._selection_changed)
         self._enabled_state()
@@ -217,7 +225,9 @@ class ParameterDesignPanel(QWidget):
         stochastic = self.method.currentData() in ('random', 'lhs', 'sobol')
         self.count.setEnabled(active and stochastic)
         self.seed.setEnabled(active and stochastic)
-        ready = active and bool(self._records)
+        self.search_edit.setEnabled(active and bool(self._records))
+        start = (self.page.value() - 1) * self.PAGE_SIZE
+        ready = active and 0 <= self.configurations.currentRow() < len(self._filtered_indices[start:start + self.PAGE_SIZE])
         self.preview_button.setEnabled(ready); self.export_button.setEnabled(ready)
         self.page.setEnabled(ready and self.page.maximum() > 1)
 
@@ -228,9 +238,10 @@ class ParameterDesignPanel(QWidget):
         self.changed.emit()
 
     def invalidate(self):
-        self._records = []; self._fingerprint = None
+        self._records = []; self._filtered_indices = []; self._fingerprint = None
         self.configurations.setRowCount(0)
         self.page_info.setText('No current configuration table.')
+        self.search_edit.setEnabled(False)
         self.preview_button.setEnabled(False); self.export_button.setEnabled(False); self.page.setEnabled(False)
         self.status.setText('Configurations are stale. Generate configurations again.' if self.enabled_check.isChecked()
                             else 'Design disabled. Parameters defines one configuration.')
@@ -290,40 +301,80 @@ class ParameterDesignPanel(QWidget):
         except (ValueError, TypeError, KeyError) as error:
             QMessageBox.warning(self, 'Parameter design', str(error)); return
         self._records = records; self._fingerprint = key
-        self.page.blockSignals(True)
-        self.page.setRange(1, max(1, math.ceil(len(records) / self.PAGE_SIZE))); self.page.setValue(1)
-        self.page.blockSignals(False)
+        self._filter_records()
+        self.update_summary()
+        self.status.setText(f'Generated {len(records):,} configurations. Select one, then preview or export explicitly.'
+                            if self._filtered_indices else
+                            f'Generated {len(records):,} configurations; none match the search. Clear search to see all.')
+
+    def _filter_records(self, *_):
+        """Search scalar metadata only; preserve the full design and stable IDs."""
+        query = self.search_edit.text().strip().casefold()
+        self._filtered_indices = []
+        for index, record in enumerate(self._records):
+            text = ' '.join([record['id'], *record['parameters'],
+                             *[format(value, '.10g') for value in record['parameters'].values()],
+                             *[repr(value) for value in record['parameters'].values()]])
+            if not query or query in text.casefold(): self._filtered_indices.append(index)
+        previous = self.page.blockSignals(True)
+        self.page.setRange(1, max(1, math.ceil(len(self._filtered_indices) / self.PAGE_SIZE)))
+        self.page.setValue(1)
+        self.page.blockSignals(previous)
         self._render_page()
-        self._enabled_state(); self.update_summary()
-        self.status.setText(f'Generated {len(records):,} configurations. Select one, then preview or export explicitly.')
+        if self._records and not self._filtered_indices:
+            self.status.setText('No configurations match the search. Clear search to see all.')
 
     def _render_page(self, *_):
         names = list(self._records[0]['parameters']) if self._records else []
+        start = (self.page.value() - 1) * self.PAGE_SIZE
+        indices = self._filtered_indices[start:start + self.PAGE_SIZE]
+        previous = self.configurations.blockSignals(True)
         self.configurations.setColumnCount(1 + len(names))
         self.configurations.setHorizontalHeaderLabels(['Configuration', *names])
-        start = (self.page.value() - 1) * self.PAGE_SIZE
-        rows = self._records[start:start + self.PAGE_SIZE]
-        self.configurations.setRowCount(len(rows))
-        for row, record in enumerate(rows):
+        self.configurations.setRowCount(len(indices))
+        for row, index in enumerate(indices):
+            record = self._records[index]
             values = [record['id'], *[format(record['parameters'][name], '.10g') for name in names]]
             for column, value in enumerate(values): self.configurations.setItem(row, column, QTableWidgetItem(value))
         self.configurations.resizeColumnsToContents()
-        if rows: self.configurations.setCurrentCell(0, 0)
-        self.page_info.setText(f'{start + 1 if rows else 0}–{start + len(rows)} of {len(self._records)} configurations')
+        self.configurations.setCurrentCell(0 if indices else -1, 0 if indices else -1)
+        self.configurations.blockSignals(previous)
+        if len(self._filtered_indices) == len(self._records):
+            text = f'{start + 1 if indices else 0}–{start + len(indices)} of {len(self._records)} configurations'
+        else:
+            text = (f'{start + 1 if indices else 0}–{start + len(indices)} of '
+                    f'{len(self._filtered_indices)} matches ({len(self._records)} total configurations)')
+        self.page_info.setText(text)
+        self._selection_changed()
+        self._enabled_state()
 
     def _selection_changed(self, *_):
-        if not self._records: return
-        index = (self.page.value() - 1) * self.PAGE_SIZE + self.configurations.currentRow()
-        if 0 <= index < len(self._records):
+        row = self.configurations.currentRow()
+        offset = (self.page.value() - 1) * self.PAGE_SIZE + row
+        if row >= 0 and 0 <= offset < len(self._filtered_indices):
+            index = self._filtered_indices[offset]
             self.status.setText('Selected ' + self._records[index]['id'] + '. Preview or export explicitly.')
+        self._enabled_state()
 
-    def selected_setup(self, base_setup):
-        if not self.enabled_check.isChecked(): return deepcopy(base_setup)
+    def generated_records(self, base_setup):
+        """Borrow all fresh scalar records, independently of the search/selection.
+
+        Callers must treat the returned records as read-only. Exporting the entire
+        generated design deliberately includes rows hidden by the table search.
+        """
+        if not self.enabled_check.isChecked():
+            raise ValueError('Enable a parameter design and generate configurations first.')
         design = self.design()
         if not self._records or self._key(base_setup, design) != self._fingerprint:
             raise ValueError('Configurations are stale. Generate configurations again before preview or export.')
+        return tuple(self._records)
+
+    def selected_setup(self, base_setup):
+        if not self.enabled_check.isChecked(): return deepcopy(base_setup)
+        self.generated_records(base_setup)
         row = self.configurations.currentRow()
-        if row < 0: raise ValueError('Select a configuration first.')
-        index = (self.page.value() - 1) * self.PAGE_SIZE + row
-        if not 0 <= index < len(self._records): raise ValueError('Select a configuration first.')
+        offset = (self.page.value() - 1) * self.PAGE_SIZE + row
+        if row < 0 or not 0 <= offset < len(self._filtered_indices):
+            raise ValueError('Select a configuration first; the search may have no matches.')
+        index = self._filtered_indices[offset]
         return deepcopy(self._records[index]['setup'])

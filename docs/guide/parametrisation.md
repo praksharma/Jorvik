@@ -87,8 +87,11 @@ and an estimated uncompressed numeric payload before generation. Estimates cover
 coordinates/tags/available normals; metadata/container overhead and compression
 are excluded. At most 10,000 configurations are allowed, and oversized Cartesian
 products are rejected before allocating the grid. Scalar configurations are
-paged in sets of 200 rows. Generating this table does not create transformed
-point clouds or regenerate spatial samples.
+paged in sets of 200 rows. Literal, case-insensitive search matches configuration
+IDs, parameter names and numeric values, retaining the original IDs and row order.
+No matches disables selected-row actions. Clearing search restores the full table;
+search does not change the design or its generated values. Generating this table
+does not create transformed point clouds or regenerate spatial samples.
 
 Click **Generate configurations**, select a row, then **Preview selected
 configuration** or **Export selected configuration**. The Processing/Export tabs
@@ -110,6 +113,69 @@ the generated table and preview are not saved. Invalid unfinished design drafts
 are discarded on close with a status message, retaining the last valid setup and
 unlocking the workspace.
 
-Later work includes constraints/filtering, cancellable batch processing, streamed
-configuration shards, incremental NetCDF4 grouped output, integration weights and
-CAD regeneration with recipe resampling. These are not implemented.
+## Background sweep export
+
+After generating a current design in Combinations, open **Processing** and choose
+**Export generated design…**. It exports **all generated configurations**, even
+if the table search shows only a few matches. This is independent of the selected
+row. Choose NetCDF (`.nc`, the default) or compressed NumPy (`.npz`) files and
+**Stop at the first failed configuration** or **Continue and record failures**.
+Select a new output-folder name; existing files and folders are never reused.
+
+A single background worker reads the original datasets and transforms/writes one
+configuration at a time. The viewport and original samples stay unchanged; no
+full collection of transformed clouds is held in RAM. Parameter/design-definition
+editing and other exports are disabled during work. Progress shows attempted,
+written and failed counts plus elapsed time. **Cancel export** finishes the current
+atomic file, then stops before the next configuration. Closing the workspace or
+application requests the same cancellation and waits before destroying the worker.
+Completed outputs and partial-run records are retained.
+
+The new folder contains:
+
+- `manifest.json`: sweep schema **1**, source hash, original dataset recipes,
+  full base/design definition, format, counters, elapsed time and final status.
+- `configurations.json`: scalar configuration IDs, actual named values, transform
+  setups and expected filenames; written once before data processing.
+- `results.jsonl`: one result per attempted configuration, appended only after its
+  export completes or fails. Successful entries name their output file; failed
+  entries record an error and have no successful filename.
+- `configuration_000001.nc` or `.npz`, etc.: independently loadable configuration
+  files with original label maps, unequal region point counts, entity tags,
+  applicable normals, actual parameter values and transform provenance.
+
+`complete` with `all_outputs_complete: true` means every shard succeeded.
+`complete_with_errors` means all configurations were attempted but some failed;
+`failed` stops on an error; `cancelled` leaves remaining configurations pending.
+An interrupted process may leave `running`, a missing manifest or an incomplete
+last journal line; none indicates a complete run. Resume/retry is not implemented:
+choose a new folder for another attempt. Each shard and each manifest checkpoint
+is written atomically. Original recipes, region seeds, methods and point counts
+are retained; affine mapping does not regenerate CAD or improve spatial accuracy.
+
+For example, read only successful NetCDF configurations (NumPy shards use the
+same journal and carry JSON metadata in `_gs_metadata`):
+
+```python
+import json
+from pathlib import Path
+import xarray as xr
+
+run = Path("parameter_sweep")
+for line in (run / "results.jsonl").read_text().splitlines():
+    result = json.loads(line)
+    if result["status"] != "complete":
+        continue
+    with xr.open_dataset(run / result["filename"], engine="scipy") as dataset:
+        regions = json.loads(dataset.attrs["metadata_json"])["datasets"]
+        parameters = dataset["_gs_design_values"].values
+        for region in regions:
+            coordinates = dataset[region["array"]].values
+            # Use region['label'] and its independent N×3 coordinates.
+```
+
+Size estimates concern numeric payloads, not peak Python/Qt memory or compressed
+file size. Memory still scales with the original datasets and one transformed
+configuration. Multiple concurrent workers, within-file cancellation, automatic
+resume/retry, constraints, NetCDF4 grouped output, Jacobian weights and CAD
+regeneration remain later work.

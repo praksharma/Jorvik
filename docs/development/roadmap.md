@@ -269,7 +269,8 @@ are outside the initial release; use the verified neutral export formats instead
       behaviour reproducibly and keep configuration identifiers stable.
 - [x] Paginated configuration table/selection and explicit preview/export of one
       chosen configuration without processing the entire sweep.
-- [ ] Add filtering/search of the configuration table.
+- [x] Literal case-insensitive configuration search with stable filtered pagination;
+      preserve unfiltered design scope for full sweep exports.
 
 ### Preview and execution
 
@@ -278,15 +279,17 @@ are outside the initial release; use the verified neutral export formats instead
 - [ ] Extend preview to regenerated CAD geometry when regeneration is implemented.
 - [x] Keep parameter edits lightweight: mark stale previews/results and require
       explicit Preview or Process configurations; never auto-run complete sweeps.
-- [ ] Three modes: Preview one configuration; Batch process all configurations
-      without changing the viewport; Export-only stream results to disk.
-- [ ] Background workers with bounded queues/chunks and configurable concurrency;
-      avoid keeping all clouds in RAM or multiplying memory across workers.
-- [ ] Progress bar, elapsed time, completed/total counts, warnings/failures and Cancel.
-- [ ] Define fail-fast versus continue-on-error behaviour, partial-output marking,
-      cleanup, cancellation checkpoints and optional resume/retry of a manifest.
-- [ ] Retain separate methods, seeds, point counts and geometry accuracy for each
-      region; include unchanged regions where needed for consistent domain datasets.
+- [x] Preview one selected configuration or export the full generated design in
+      the background without changing the viewport; stream one file at a time.
+- [x] Single background export worker with one transformed configuration at a time;
+      keep scalar plans/progress separate from clouds and lock borrowed sources.
+- [ ] Configurable bounded concurrency and within-file chunk/cancellation checkpoints.
+- [x] Progress bar, elapsed time, attempted/written/failed counts and Cancel.
+- [x] Stop-on-error/continue policies, explicit partial-run manifests, atomic shards,
+      cooperative cancellation and safe deferred workspace/application closure.
+- [ ] Resume/retry manifests after verifying sources, recipes and completed outputs.
+- [x] Preserve each region's method, seed, count and geometry-accuracy provenance
+      in affine sweep outputs; include hidden/unaffected datasets.
 - [ ] Geometry-aware membership checks against the intended transformed/regenerated
       domain; clearly distinguish outside points, invalid geometry and unverified
       checks. Moving just a wall must not imply the interior remains valid.
@@ -322,12 +325,12 @@ are outside the initial release; use the verified neutral export formats instead
       do not assume xarray append mode automatically extends configuration arrays.
 - [ ] Handle varying point counts explicitly through ragged representations or
       separate configuration groups; never silently pad, truncate or duplicate points.
-- [ ] NPZ configuration shards plus manifest for large runs; document filenames,
-      safe keys, loading without pickle and reconstruction of region/parameter data.
+- [x] NPZ/NetCDF configuration files plus versioned manifest, scalar plan and result
+      journal; stable safe filenames and per-file original region-label maps.
 - [ ] Preserve source hashes, units, original recipes, algorithms/seeds, parameter
       configurations, transform order/pivots, warnings and completed/failed status.
-- [ ] Keep final outputs atomic or clearly mark incomplete streaming runs; preserve
-      existing destinations on failure and define safe resume behaviour.
+- [x] Atomic files and explicit complete/error/cancelled/incomplete run states;
+      require a new output folder and preserve all existing destinations.
 - [x] Persist multiple named parameters, transform bindings, units/reference values
       and versioned design definitions in JSON/projects; retain legacy setup support.
 - [ ] Extend setup JSON with constraints and regeneration recipes.
