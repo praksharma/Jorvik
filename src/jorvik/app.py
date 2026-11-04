@@ -243,7 +243,13 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         dialog = self.parametrisation_dialog
         self.parametrisation_dialog = None
         if dialog is not None:
-            self.parametrisation_setup = dialog.setup()
+            try:
+                from .parametrisation import validate_setup
+                candidate = dialog.setup()
+                validate_setup(candidate, self.sampling.batches)
+                self.parametrisation_setup = candidate
+            except (ValueError, TypeError, OverflowError) as error:
+                self.statusBar().showMessage('Setup not saved; previous valid setup retained: ' + str(error))
         self.sampling.setEnabled(True)
         self.tree.setEnabled(True)
         self.sampled_areas.setEnabled(True)

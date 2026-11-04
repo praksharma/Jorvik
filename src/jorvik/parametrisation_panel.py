@@ -5,6 +5,8 @@ from PySide6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QFormL
     QHBoxLayout, QFileDialog, QMessageBox, QScrollArea)
 from pathlib import Path
 import math
+from copy import deepcopy
+from .parameter_design_panel import ParameterDesignPanel
 from .parametrisation import export_configuration, validate_setup, save_setup, load_setup
 
 
@@ -65,10 +67,12 @@ class ParametrisationDialog(QDialog):
         parameter_scroll = QScrollArea(); parameter_scroll.setWidgetResizable(True)
         parameter_scroll.setWidget(parameters)
         self.tabs.addTab(parameter_scroll, 'Parameters')
-        combinations = QWidget(); box = QVBoxLayout(combinations)
-        text = QLabel('One configuration uses the translation, rotation, scale and pivot values in Parameters.\n\nParameter ranges and Cartesian/LHS/Sobol sweeps will be added in a later stage.')
-        text.setWordWrap(True); box.addWidget(text); box.addStretch()
+        self.design_panel = ParameterDesignPanel(window, self._base_setup)
+        combinations = QScrollArea(); combinations.setWidgetResizable(True)
+        combinations.setWidget(self.design_panel)
         self.tabs.addTab(combinations, 'Combinations')
+        self.design_panel.requestPreview.connect(self.preview)
+        self.design_panel.requestExport.connect(self.export_configuration)
         processing = QWidget(); box = QVBoxLayout(processing)
         text = QLabel('Preview explicitly applies one configuration to the viewport. Original geometry and sampled datasets stay unchanged. Restore or close this workspace to return to the originals.')
         text.setWordWrap(True); box.addWidget(text)
@@ -86,6 +90,7 @@ class ParametrisationDialog(QDialog):
         layout.addWidget(self.status)
         for spin in [*self.offsets, *self.rotation_axis, self.rotation_angle, *self.scales, *self.pivots]:
             spin.valueChanged.connect(self.mark_changed)
+        self.design_panel.changed.connect(self.mark_changed)
         self.scope.currentIndexChanged.connect(self.mark_changed)
         self.regions.itemChanged.connect(self.mark_changed)
         self.reset_button = QPushButton('Reset setup')
@@ -116,6 +121,18 @@ class ParametrisationDialog(QDialog):
             if (not math.isfinite(value) or not spin.minimum() <= value <= spin.maximum()
                     or abs(value - round(value, spin.decimals())) > max(1e-14, abs(value) * 1e-14)):
                 raise ValueError('A transformation value exceeds the range or precision supported by this workspace.')
+        design = deepcopy(setup.get('design'))
+        if design is not None and advanced.get('angle_units') == 'radians':
+            # This workspace displays degrees. Convert the bound angle definition
+            # with the base angle rather than silently relabelling radian values.
+            for parameter in design['parameters']:
+                if parameter['target'] == 'rotation_angle':
+                    for field in ('start', 'stop', 'reference'):
+                        if field in parameter: parameter[field] = math.degrees(parameter[field])
+                    if 'values' in parameter:
+                        parameter['values'] = [math.degrees(value) for value in parameter['values']]
+                    parameter['unit'] = 'degrees'
+        self.design_panel.apply_design(design)
         self.restore()
         self.scope.setCurrentIndex(self.scope.findData(setup['scope']))
         for spin, value in assignments: spin.setValue(value)
@@ -126,6 +143,8 @@ class ParametrisationDialog(QDialog):
 
 
     def mark_changed(self):
+        self.design_panel.invalidate()
+        self.design_panel.update_summary()
         if self.window.view.translation_preview is not None:
             self.status.setText('Parameters changed. The viewport still shows the previous preview; click Preview configuration to update.')
         else:
@@ -142,6 +161,7 @@ class ParametrisationDialog(QDialog):
         for spin in self.scales: spin.setValue(1)
         for i in range(self.regions.count()):
             self.regions.item(i).setCheckState(Qt.CheckState.Unchecked)
+        self.design_panel.apply_design(None)
         self.status.setText('Setup reset to the whole-domain identity transformation. Preview or process/export explicitly.')
 
     def scope_changed(self):
@@ -149,7 +169,7 @@ class ParametrisationDialog(QDialog):
         self.regions.setEnabled(regions)
         self.warning.setText('Only checked point clouds move. CAD geometry stays fixed; boundary/interior consistency is unverified.' if regions else 'Geometry display and all sampled regions transform together. The source CAD file is unchanged.')
 
-    def setup(self):
+    def _base_setup(self):
         return {'schema_version': 2, 'scope': self.scope.currentData(),
                 'translation': [spin.value() for spin in self.offsets],
                 'rotation_axis': [spin.value() for spin in self.rotation_axis],
@@ -161,15 +181,30 @@ class ParametrisationDialog(QDialog):
                             if self.regions.item(i).checkState() == Qt.CheckState.Checked],
                 'source_hash': self.source_hash}
 
+    def setup(self):
+        setup = self._base_setup()
+        design = self.design_panel.design()
+        if design is not None: setup['design'] = design
+        return setup
+
+    def active_setup(self):
+        setup = self.design_panel.selected_setup(self._base_setup())
+        design = self.design_panel.design()
+        if design is not None:
+            # Only the chosen row carries the full definition into exports.
+            # The generated table holds scalar setups and stays bounded in size.
+            setup['design'] = design
+        validate_setup(setup, self.window.sampling.batches)
+        return setup
+
     def report_error(self, error):
         QMessageBox.warning(self, 'Parametrisation', str(error))
 
     def preview(self):
         try:
-            setup = self.setup()
-            validate_setup(setup, self.window.sampling.batches)
+            setup = self.active_setup()
             self.window.view.set_translation_preview(setup)
-            self.status.setText('Preview active — original datasets unchanged. Export processes these parameter values independently.')
+            self.status.setText('Preview active — original datasets unchanged. Export processes the selected values independently.')
         except (ValueError, TypeError) as error:
             self.report_error(error)
 
@@ -187,8 +222,7 @@ class ParametrisationDialog(QDialog):
 
     def export_configuration(self):
         try:
-            setup = self.setup()
-            validate_setup(setup, self.window.sampling.batches)
+            setup = self.active_setup()
             filename, selected = QFileDialog.getSaveFileName(self, 'Export transformed configuration', 'transformed_samples.nc', 'NetCDF (*.nc);;NumPy archive (*.npz)')
             if not filename:
                 return

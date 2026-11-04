@@ -50,6 +50,64 @@ def validate_setup(setup, batches=None):
             raise ValueError('Use scale, rotate, translate order in the world coordinate frame.')
         # Check arithmetic before changing previews, saving setups or writing files.
         _affine_components(setup)
+    if 'design' in setup:
+        if setup['schema_version'] != 2:
+            raise ValueError('Parameter designs require a schema 2 transform setup.')
+        from .parameter_design import validate_design
+        validate_design(setup['design'], setup)
+    if 'design_configuration' in setup:
+        configuration = setup['design_configuration']
+        from .parameter_design import METHODS
+        if (setup['schema_version'] != 2 or not isinstance(configuration, dict)
+                or not isinstance(configuration.get('id'), str) or not configuration['id']
+                or configuration.get('method') not in METHODS
+                or type(configuration.get('seed')) is not int or not 0 <= configuration['seed'] < 2**32):
+            raise ValueError('Invalid parameter configuration provenance.')
+        parameters, units = configuration.get('parameters'), configuration.get('units')
+        if (not isinstance(parameters, dict) or not parameters or not isinstance(units, dict)
+                or set(parameters) != set(units)
+                or any(not isinstance(name, str) or not name.strip() for name in parameters)
+                or any(unit not in ('source', 'degrees', 'radians', 'dimensionless') for unit in units.values())):
+            raise ValueError('Invalid named parameter values or units.')
+        for value in parameters.values():
+            try:
+                valid = type(value) in (int, float) and np.isfinite(float(value))
+            except (ValueError, OverflowError):
+                valid = False
+            if not valid: raise ValueError('Parameter values must be finite numbers.')
+        bindings = configuration.get('bindings')
+        if 'design' in setup:
+            definition = setup['design']
+            expected = {parameter['name']: parameter['target'] for parameter in definition['parameters']}
+            if (configuration['method'] != definition['method'] or configuration['seed'] != definition['seed']
+                    or set(parameters) != set(expected)
+                    or units != {parameter['name']: parameter['unit'] for parameter in definition['parameters']}
+                    or bindings is not None and bindings != expected):
+                raise ValueError('Selected configuration differs from its parameter design.')
+            bindings = expected
+        if bindings is not None:
+            from .parameter_design import TARGETS
+            if not isinstance(bindings, dict) or set(bindings) != set(parameters):
+                raise ValueError('Invalid named parameter bindings.')
+            targets = list(bindings.values())
+            if (any(not isinstance(target, str) or target not in TARGETS for target in targets) or len(set(targets)) != len(targets)
+                    or 'uniform_scale' in targets and any(target.startswith('scale_') for target in targets)):
+                raise ValueError('Invalid or overlapping named parameter bindings.')
+            for name, target in bindings.items():
+                value = parameters[name]
+                if target.startswith('translation_'):
+                    actual = setup['translation']['xyz'.index(target[-1])]
+                elif target.startswith('scale_'):
+                    actual = setup['scale']['xyz'.index(target[-1])]
+                elif target == 'rotation_angle': actual = setup['rotation_angle']
+                else:
+                    if any(factor != value for factor in setup['scale']):
+                        raise ValueError('Uniform scale parameter differs from the actual transform.')
+                    actual = value
+                expected_unit = ('source' if target.startswith('translation_') else
+                                 setup['angle_units'] if target == 'rotation_angle' else 'dimensionless')
+                if actual != value or units[name] != expected_unit:
+                    raise ValueError('Named parameter provenance differs from the actual transform.')
     if batches is not None:
         if not batches:
             raise ValueError('Generate samples before processing configurations.')
@@ -148,8 +206,11 @@ def transform_batches(batches, setup):
             'domain_consistency': ('consistent affine transform' if affine else 'consistent translation') if setup['scope'] == 'domain' else 'unverified',
         }
         if affine:
+            # The full design definition is stored once in the export manifest,
+            # rather than duplicating potentially long explicit lists per region.
+            record_setup = {key: deepcopy(value) for key, value in setup.items() if key != 'design'}
             record['parametrisation'].update(
-                setup=deepcopy(setup), matrix=_matrix(linear, offset).tolist(),
+                setup=record_setup, matrix=_matrix(linear, offset).tolist(),
                 order=list(setup['order']), frame=setup['frame'],
                 density_note='Scaling changes spatial point density; point counts are preserved and no integration/Jacobian weights are supplied.')
         result.append(record)
@@ -193,6 +254,13 @@ def export_configuration(batches, setup, path):
             dataset.coords['_gs_' + name] = xr.DataArray(setup[field], dims='_gs_xyz')
         dataset.coords['_gs_rotation_angle'] = xr.DataArray(
             setup['rotation_angle'], attrs={'angle_units': setup['angle_units']})
+    if 'design_configuration' in setup:
+        parameters = setup['design_configuration']['parameters']
+        dataset.coords['_gs_design_parameter'] = list(parameters)
+        dataset.coords['_gs_design_values'] = xr.DataArray(
+            list(parameters.values()), dims='_gs_design_parameter')
+        dataset.coords['_gs_design_units'] = xr.DataArray(
+            [setup['design_configuration']['units'][name] for name in parameters], dims='_gs_design_parameter')
     manifest = json.loads(dataset.attrs['metadata_json'])
     manifest['parametrisation'] = setup
     manifest['configuration_count'] = 1

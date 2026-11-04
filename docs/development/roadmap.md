@@ -234,7 +234,7 @@ are outside the initial release; use the verified neutral export formats instead
 
 ### Parameters and transformation engine
 
-- [ ] Add multiple named parameters with units, reference/default values, ranges,
+- [x] Add multiple named parameters with units, reference/default values, ranges,
       explicit value lists or counts, and unambiguous mapping to transformations.
 - [x] Add rotation with axis, angle units and pivot; add positive uniform and
       non-uniform scaling with explicit origin/pivot.
@@ -257,18 +257,19 @@ are outside the initial release; use the verified neutral export formats instead
 
 ### Configuration generation and constraints
 
-- [ ] Cartesian products, paired explicit configurations, seeded random, LHS and
+- [x] Cartesian products, paired explicit configurations, seeded random, LHS and
       Sobol designs; distinguish per-parameter value counts from total design size.
-- [ ] Generate parameter-space designs independently of spatial sampling settings;
+- [x] Generate parameter-space designs independently of spatial sampling settings;
       record design algorithm, seed, bounds and actual parameter values.
-- [ ] Show configuration count, points per region/configuration, estimated output
+- [x] Show configuration count, points per region/configuration, estimated output
       size and memory needs before starting; avoid allocating huge Cartesian grids.
 - [ ] Implement explicit parameter constraints and model validity checks; report
       rejected configurations and reasons without silently changing their values.
 - [ ] Record effects of filtering on LHS/Sobol coverage; define rejection/replacement
       behaviour reproducibly and keep configuration identifiers stable.
-- [ ] Support configuration table/filter/selection and preview exactly one chosen
-      configuration without generating or rendering the entire sweep.
+- [x] Paginated configuration table/selection and explicit preview/export of one
+      chosen configuration without processing the entire sweep.
+- [ ] Add filtering/search of the configuration table.
 
 ### Preview and execution
 
@@ -327,8 +328,9 @@ are outside the initial release; use the verified neutral export formats instead
       configurations, transform order/pivots, warnings and completed/failed status.
 - [ ] Keep final outputs atomic or clearly mark incomplete streaming runs; preserve
       existing destinations on failure and define safe resume behaviour.
-- [ ] Extend setup JSON to multiple parameters, designs, constraints, bindings and
-      recipes; version/migrate it independently of generated output.
+- [x] Persist multiple named parameters, transform bindings, units/reference values
+      and versioned design definitions in JSON/projects; retain legacy setup support.
+- [ ] Extend setup JSON with constraints and regeneration recipes.
 - [x] Full project persistence for geometry, regions, recipes, generated points and
       translation setup; embed the main CAD source and validate source hashes.
 - [ ] Optional point-cloud omission and full `.geo` dependency bundling/checksums.

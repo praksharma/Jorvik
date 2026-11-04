@@ -31,6 +31,11 @@ def save_project(path, geometry, areas, state):
     validate_topology(geometry)
     validate_import_metadata(geometry)
     validate_regions(state.get('boundary_regions', []), geometry)
+    if state.get('parametrisation') is not None:
+        from .parametrisation import validate_setup
+        validate_setup(state['parametrisation'])
+        if state['parametrisation']['source_hash'] != geometry['source_hash']:
+            raise ValueError('Transform setup belongs to a different geometry.')
     source = Path(geometry['source'])
     data = source.read_bytes()
     if hashlib.sha256(data).hexdigest() != geometry['source_hash']:

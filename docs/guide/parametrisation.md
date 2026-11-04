@@ -62,6 +62,54 @@ affected, the transform matrix/order/frame and the density limitation. NPZ uses
 `allow_pickle=False`; writes preserve existing destinations on failure. The
 NetCDF backend remains NetCDF3.
 
-Later work includes named parameter ranges, Cartesian/LHS/Sobol/random sweeps,
-cancellable batch processing, incremental NetCDF4 grouped output, integration
-weights and CAD regeneration with recipe resampling. These are not implemented.
+## Parameter designs and selected configurations
+
+In **Combinations**, enable **Use a parameter design** and add named parameters.
+Each name binds to exactly one translation component, rotation angle, individual
+scale component or uniform scale. Uniform scale sets all three scale factors and
+cannot overlap individual scale bindings. Values assign the target absolutely;
+the reference value is descriptive metadata, not an offset or normalization.
+Rotation uses the base angle units, distances use the unspecified source units,
+and scales are dimensionless. No physical unit conversion is inferred.
+
+For **Cartesian product**, each parameter supplies an inclusive range/value count
+or an explicit comma-separated list; the first parameter changes slowest. For
+**Paired values**, all lists/counts must have the same length and values are paired
+by position. One-point ranges use their start value. **Seeded random**, **LHS** and
+**Sobol** use parameter ranges plus a separate total configuration count and seed.
+Those seeds/designs are independent of spatial sampling methods and seeds. Sobol
+balance is strongest at power-of-two sizes; other sizes truncate a larger balanced
+sequence. Exact numeric sequences can change with scientific-library versions;
+the exported actual parameter values are the record of what was applied.
+
+The summary shows configurations, points per region/configuration, total points
+and an estimated uncompressed numeric payload before generation. Estimates cover
+coordinates/tags/available normals; metadata/container overhead and compression
+are excluded. At most 10,000 configurations are allowed, and oversized Cartesian
+products are rejected before allocating the grid. Scalar configurations are
+paged in sets of 200 rows. Generating this table does not create transformed
+point clouds or regenerate spatial samples.
+
+Click **Generate configurations**, select a row, then **Preview selected
+configuration** or **Export selected configuration**. The Processing/Export tabs
+also use the selected row when the design is enabled. Selection alone never
+changes the viewport. Edits to base transforms or design definitions invalidate
+the table and require explicit regeneration; the old viewport preview stays
+visible until Preview/Restore. Invalid configurations fail generation explicitly
+with their configuration ID; there is no silent filtering or replacement.
+
+Exports still contain **one** selected configuration and every original dataset
+with its independent point count. `_gs_design_parameter`, `_gs_design_values`
+and `_gs_design_units` record the named values once as aligned arrays. Metadata
+retains stable IDs (`configuration_000001`, ...), algorithm, seed, target bindings,
+units and actual values. The complete design definition is retained once in the
+global manifest; long explicit lists are not copied into every generated row or
+region. Setups/projects retain nested design schema **1** inside transform schema
+**2**. Reopening restores definitions but requires Generate configurations again;
+the generated table and preview are not saved. Invalid unfinished design drafts
+are discarded on close with a status message, retaining the last valid setup and
+unlocking the workspace.
+
+Later work includes constraints/filtering, cancellable batch processing, streamed
+configuration shards, incremental NetCDF4 grouped output, integration weights and
+CAD regeneration with recipe resampling. These are not implemented.
