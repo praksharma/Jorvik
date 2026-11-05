@@ -5,6 +5,7 @@ import re
 import numpy as np
 from .parametrisation import validate_setup
 from .export import to_xarray
+from .sweep_integrity import validate_integrity, verify_integrity
 
 
 def _file(root, name):
@@ -13,12 +14,14 @@ def _file(root, name):
     return root / name
 
 
-def inspect_sweep(path, *, allow_partial=False):
+def inspect_sweep(path, *, allow_partial=False, require_integrity=False):
     """Validate scalar metadata; incomplete runs require explicit opt-in.
 
     Returns the manifest and completed plan records, failed IDs and pending IDs.
     Interrupted runs may have a truncated last journal line, which is ignored
-    only with allow_partial=True. Other malformed records are rejected.
+    only with allow_partial=True. Other malformed records are rejected. Plan
+    checksums are checked here; shard checksums are checked by the iterator.
+    Legacy runs remain readable unless require_integrity=True.
     """
     root = Path(path).resolve()
     manifest = json.loads(_file(root, 'manifest.json').read_text())
@@ -26,6 +29,13 @@ def inspect_sweep(path, *, allow_partial=False):
             or manifest.get('format') not in ('nc', 'npz')
             or manifest.get('plan') != 'configurations.json' or manifest.get('results') != 'results.jsonl'):
         raise ValueError('Unsupported sweep manifest.')
+    integrity = manifest.get('integrity')
+    if 'integrity' in manifest:
+        if not isinstance(integrity, dict) or integrity.get('algorithm') != 'sha256':
+            raise ValueError('Unsupported sweep integrity algorithm.')
+        verify_integrity(_file(root, manifest['plan']), integrity.get('plan'))
+    elif require_integrity:
+        raise ValueError('This legacy sweep has no integrity checksums.')
     status = manifest.get('status')
     if status not in ('complete', 'complete_with_errors', 'failed', 'cancelled', 'running'):
         raise ValueError('Invalid sweep status.')
@@ -57,6 +67,7 @@ def inspect_sweep(path, *, allow_partial=False):
     if not 1 <= len(records) <= 10000 or manifest.get('configuration_count') != len(records):
         raise ValueError('Sweep configuration count differs from its plan.')
     done, failed, seen = set(), set(), set()
+    checksums = {}
     journal_path = _file(root, manifest['results'])
     text = journal_path.read_text() if journal_path.exists() else ''
     lines = text.splitlines()
@@ -76,6 +87,9 @@ def inspect_sweep(path, *, allow_partial=False):
                 raise ValueError('Result filename differs from its plan.')
             if not _file(root, result['filename']).is_file():
                 raise ValueError('A completed configuration file is missing.')
+            if integrity is not None:
+                validate_integrity(result.get('integrity'))
+                checksums[identity] = result['integrity']
             done.add(identity)
         elif result.get('status') == 'failed' and 'filename' not in result:
             failed.add(identity)
@@ -90,15 +104,21 @@ def inspect_sweep(path, *, allow_partial=False):
         raise ValueError('Complete sweep has missing or failed outputs.')
     return {'manifest': manifest, 'completed': [record for key, record in records.items() if key in done],
             'failed': [key for key in records if key in failed],
-            'pending': [key for key in records if key not in seen]}
+            'pending': [key for key in records if key not in seen], 'checksums': checksums}
 
 
-def iter_sweep_datasets(path, *, allow_partial=False):
-    """Yield independent arrays for each successful configuration in plan order."""
+def iter_sweep_datasets(path, *, allow_partial=False, require_integrity=False):
+    """Verify shard bytes, then yield independent arrays in plan order.
+
+    Checksums detect accidental changes, not malicious replacement of a run.
+    Legacy runs have structural validation only unless require_integrity=True.
+    """
     root = Path(path).resolve()
-    run = inspect_sweep(root, allow_partial=allow_partial)
+    run = inspect_sweep(root, allow_partial=allow_partial, require_integrity=require_integrity)
     for record in run['completed']:
         shard = _file(root, record['filename'])
+        if record['id'] in run['checksums']:
+            verify_integrity(shard, run['checksums'][record['id']])
         if run['manifest']['format'] == 'npz':
             with np.load(shard, allow_pickle=False) as data:
                 metadata = json.loads(data['_gs_metadata'].item())

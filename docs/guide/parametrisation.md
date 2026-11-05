@@ -180,8 +180,18 @@ for line in (run / "results.jsonl").read_text().splitlines():
 result counters and completed-file presence without loading point arrays.
 `iter_sweep_datasets(path)` then yields one completed configuration at a time,
 validating each shard's source/setup/parameter provenance, shapes, finite values,
-entity tags, label/count mapping and applicable unit normals. These are structural
-checks; sweep files do not currently carry cryptographic content checksums.
+entity tags, label/count mapping and applicable unit normals. New sweeps record
+SHA-256 hashes and byte counts for the scalar plan and each successful shard.
+Inspection verifies the plan checksum; iteration verifies each shard checksum
+before loading it, using bounded-memory reads. This detects changes even when
+coordinate arrays remain structurally valid. Hashing adds a sequential file read
+per export and per verified import.
+
+Older sweeps remain readable with structural checks. Pass `require_integrity=True`
+to either API to reject runs without checksums. A missing or malformed checksum
+in a run that declares integrity is always an error. Checksums detect accidental
+changes; they do not authenticate the author or protect against someone replacing
+both files and their recorded hashes. Keep run files unchanged while reading.
 Both APIs reject incomplete/error runs by default. Pass `allow_partial=True`
 explicitly to use successful files from cancelled, failed or interrupted runs.
 Only an interrupted `running` journal's malformed final unterminated line can
@@ -208,7 +218,7 @@ memory; converting it to a list intentionally retains all loaded configurations.
 From a checkout, inspect a run without modifying it:
 
 ```sh
-uv run python tools/inspect_sweep.py parameter_sweep --verify
+uv run python tools/inspect_sweep.py parameter_sweep --verify --require-integrity
 # Explicit partial-output inspection:
 uv run python tools/inspect_sweep.py parameter_sweep --allow-partial --verify
 ```

@@ -323,7 +323,8 @@ are outside the initial release; use the verified neutral export formats instead
       plus `(x,y,z,mu...)` array construction with independent region counts.
 - [x] Metadata/run inspection and per-file structural validation; explicit partial-run
       opt-in and a read-only inspection command.
-- [ ] Add cryptographic shard checksums for content-integrity verification.
+- [x] SHA-256 plan/shard checksums with streaming verification, byte counts and
+      optional rejection of legacy sweeps without integrity records.
 - [ ] Incremental/chunked disk writes, compression and configurable precision;
       do not assume xarray append mode automatically extends configuration arrays.
 - [ ] Handle varying point counts explicitly through ragged representations or

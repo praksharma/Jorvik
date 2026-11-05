@@ -13,6 +13,7 @@ import time
 from .export import atomic_write, to_xarray
 from .parametrisation import export_configuration, validate_setup
 from .parameter_design import MAX_CONFIGURATIONS
+from .sweep_integrity import file_integrity
 
 SCHEMA_VERSION = 1
 
@@ -146,6 +147,8 @@ def export_sweep(batches, base_setup, configurations, destination, *,
 
     try:
         _write_json(destination / manifest['plan'], {'schema_version': SCHEMA_VERSION, 'configurations': plan})
+        manifest['integrity'] = {'algorithm': 'sha256',
+                                 'plan': file_integrity(destination / manifest['plan'])}
         checkpoint()
         with (destination / manifest['results']).open('x', encoding='utf-8') as journal:
             for record in plan:
@@ -158,6 +161,7 @@ def export_sweep(batches, base_setup, configurations, destination, *,
                           'point_counts': {batch['label']: batch['count'] for batch in batches}}
                 try:
                     export_configuration(batches, record['setup'], destination / record['filename'])
+                    result['integrity'] = file_integrity(destination / record['filename'])
                 except Exception as error:
                     result.update(status='failed', error=str(error) or type(error).__name__)
                     current_error = result['error']

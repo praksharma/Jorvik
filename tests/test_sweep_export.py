@@ -238,3 +238,24 @@ class SweepExportTest(unittest.TestCase):
             self.assertFalse(manifest['all_outputs_complete'])
             self.assertTrue((path / 'configuration_000001.npz').exists())
             self.assertEqual(results(path)[0]['status'], 'complete')
+
+    def test_checksum_read_failure_is_recorded_as_failed_not_successful(self):
+        from jorvik.sweep_integrity import file_integrity
+        clouds, base, configurations = inputs()
+        def checksum(path):
+            if path.suffix == '.npz':
+                raise OSError('Cannot read completed shard')
+            return file_integrity(path)
+        with TemporaryDirectory() as directory:
+            root = Path(directory) / 'read-error'
+            with patch('jorvik.sweep_export.file_integrity', side_effect=checksum):
+                manifest = export_sweep(clouds, base, configurations, root, file_format='npz')
+            self.assertEqual(manifest['status'], 'failed')
+            self.assertEqual(manifest['succeeded_count'], 0)
+            self.assertEqual(manifest['failed_count'], 1)
+            result = results(root)[0]
+            self.assertNotIn('filename', result)
+            self.assertNotIn('integrity', result)
+            self.assertIn('Cannot read', result['error'])
+            from jorvik.sweep_results import inspect_sweep
+            self.assertEqual(inspect_sweep(root, allow_partial=True)['completed'], [])
