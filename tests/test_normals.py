@@ -32,6 +32,7 @@ class NormalsTest(unittest.TestCase):
         batch = sample(geometry, [[1,t] for t in range(1,9)])
         self.assertEqual(batch['normal_status'], 'available')
         self.assertEqual(batch['normal_kind'], 'outward_conormal')
+        self.assertEqual(set(batch['normal_planes']), {str(t) for t in np.unique(batch['entity_tags'])})
         xyz, normals = np.array(batch['coordinates']), np.array(batch['normals'])
         radius = np.linalg.norm(xyz, axis=1)
         expected = xyz/radius[:,None] * np.where(radius>.75,1,-1)[:,None]
@@ -106,6 +107,7 @@ class NormalsTest(unittest.TestCase):
                         np.testing.assert_array_equal(data[record['normals']],batch['normals'])
                 self.assertEqual(metadata['schema_version'],2)
                 self.assertNotIn('normals',record['metadata'])
+                self.assertEqual(record['metadata']['normal_planes'], batch['normal_planes'])
                 self.assertNotIn('normals',metadata['datasets'][1])
             saved = state(); saved['selected_area']=batch['label']
             path=Path(directory)/'normals.jorvik'
@@ -128,3 +130,54 @@ class NormalsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'unit vectors'):to_xarray([bad])
         bad=deepcopy(batch);del bad['normals']
         with self.assertRaisesRegex(ValueError,'missing'):to_xarray([bad])
+
+    def test_scaled_annulus_conormals_and_corrupt_project_frames(self):
+        from test_affine_transforms import affine_setup
+        geometry = load_geometry(ROOT / 'cfdbench/annulus_unstructured.geo')
+        batch = sample(geometry, [[1, t] for t in range(1, 9)], count=32)
+        config = affine_setup(source_hash=geometry['source_hash'], scale=[2., 3., 4.],
+                              rotation_axis=[1., 0., 0.], rotation_angle=35.)
+        from jorvik.parametrisation import affine_transform
+        linear, _ = affine_transform(config)
+        mapped = transform_batches([batch], config)[0]
+        # Analytic ellipse gradient within the scaled XY plane, then rotate.
+        points = np.array(batch['coordinates'])
+        expected = points / [2., 3., 4.]
+        expected *= np.where(np.linalg.norm(points, axis=1) > .75, 1., -1.)[:, None]
+        rotation = linear @ np.diag([.5, 1/3, .25])
+        expected = expected @ rotation.T
+        expected /= np.linalg.norm(expected, axis=1, keepdims=True)
+        np.testing.assert_allclose(mapped['normals'], expected, atol=1e-8)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'planes.jorvik'
+            saved = state(); saved['selected_area'] = batch['label']
+            save_project(path, geometry, [(batch, 'Generated', True)], saved)
+            restored, _ = load_project(path)
+            self.assertEqual(restored['areas'][0]['area']['normal_planes'], batch['normal_planes'])
+            with zipfile.ZipFile(path) as archive:
+                files = {name: archive.read(name) for name in archive.namelist()}
+            metadata = json.loads(files['manifest.json'])
+            first = next(iter(batch['normal_planes']))
+            metadata['areas'][0]['area']['normal_planes'][first] = [0., 0., 0.]
+            files['manifest.json'] = json.dumps(metadata).encode()
+            with zipfile.ZipFile(path, 'w') as archive:
+                for name, content in files.items(): archive.writestr(name, content)
+            with self.assertRaisesRegex(ValueError, 'plane normals'): load_project(path)
+
+    def test_rotated_cad_records_oblique_parent_planes(self):
+        from test_affine_transforms import affine_setup
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'tilted.geo'
+            source = (ROOT / 'cfdbench/annulus_unstructured.geo').read_text()
+            path.write_text(source + '\nRotate {{1, 0, 0}, {0, 0, 0}, Pi/4} { Surface{1}; }\n')
+            geometry = load_geometry(path)
+            original = sample(geometry, [[1, t] for t in range(1, 9)], count=32)
+            self.assertEqual(original['normal_status'], 'available')
+            expected_plane = np.array([0., -1., 1.]) / np.sqrt(2)
+            for plane in original['normal_planes'].values():
+                self.assertAlmostEqual(abs(float(np.array(plane) @ expected_plane)), 1.)
+            setup = affine_setup(source_hash=geometry['source_hash'], scale=[2., 3., 4.])
+            mapped = transform_batches([original], setup)[0]
+            from jorvik.normals import validate_normals
+            validate_normals(mapped)
+            self.assertEqual(mapped['normal_status'], 'available')

@@ -169,3 +169,26 @@ class SweepResultsTest(unittest.TestCase):
             self.assertEqual(bad.returncode, 1)
             self.assertIn('checksum mismatch', bad.stderr)
             self.assertEqual(bad.stdout, '')
+
+    def test_sweep_conormal_frames_survive_transforms_and_verified_reads(self):
+        clouds, base, configs = inputs()
+        clouds[0].update(entity_dimension=1, entities=[[1, 6]],
+                         normals=[[1., 0., 0.]]*3, normal_kind='outward_conormal',
+                         normal_planes={'6': [0., 0., 1.]})
+        base['scale'] = [2., 3., 4.]
+        from jorvik.parameter_design import generate_configurations
+        configs = generate_configurations(base, base['design'])
+        with TemporaryDirectory() as directory:
+            for fmt in ('nc', 'npz'):
+                root = Path(directory) / fmt
+                export_sweep(clouds, base, configs, root, file_format=fmt)
+                results = list(iter_sweep_datasets(root, require_integrity=True))
+                self.assertEqual(len(results), 3)
+                for row in results:
+                    boundary = row['datasets'][0]
+                    self.assertEqual(boundary['normal_status'], 'available')
+                    self.assertEqual(boundary['normal_kind'], 'outward_conormal')
+                    np.testing.assert_allclose(boundary['normal_planes']['6'], [0., 0., 1.])
+                    angle = np.deg2rad(row['parameters']['angle / μ'])
+                    np.testing.assert_allclose(boundary['normals'],
+                                               [[np.cos(angle), np.sin(angle), 0.]]*3, atol=1e-14)

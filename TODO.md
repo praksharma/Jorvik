@@ -253,8 +253,9 @@ are outside the initial release; use the verified neutral export formats instead
 - [x] Generate applicable boundary normals first, with orientation validation;
       rotate/scale normals with the normalized inverse transpose, preserving
       translation invariance. Never silently invent outward normals for open shells.
-- [ ] Retain source-plane frames for anisotropic transformation of planar boundary
-      co-normals; currently omit these arrays with an explicit unavailable reason.
+- [x] Retain validated per-edge source-plane normals for anisotropic transformation
+      of planar boundary co-normals; preserve frames through projects/exports.
+      Legacy samples without frames retain explicit unavailable-normal behaviour.
 - [x] Document density changes after scaling and retain original point counts.
 - [ ] Evaluate surface/volume Jacobian weights for downstream integration.
 

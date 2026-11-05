@@ -37,6 +37,7 @@ def boundary_normals(gmsh, dimension, points, point_tags, target):
             gmsh.model.mesh.generate(3)
             gmsh.model.mesh.setOrder(1)
         normals = np.empty_like(points, dtype=float)
+        planes = {}
         for tag, parent in parents.items():
             mask = point_tags == tag
             xyz = points[mask]
@@ -47,6 +48,13 @@ def boundary_normals(gmsh, dimension, points, point_tags, target):
                 tangent = np.asarray(gmsh.model.getDerivative(1, tag, parameters)).reshape(-1, 3)
                 uv = gmsh.model.getParametrization(2, parent, xyz.ravel())
                 surface = np.asarray(gmsh.model.getNormal(parent, uv)).reshape(-1, 3)
+                surface_lengths = np.linalg.norm(surface, axis=1, keepdims=True)
+                if not np.isfinite(surface).all() or np.any(surface_lengths <= 0):
+                    return _unavailable('The geometry returned an invalid parent plane normal.')
+                surface = surface / surface_lengths
+                if not np.allclose(np.abs(surface @ surface[0]), 1., rtol=1e-6, atol=1e-8):
+                    return _unavailable('The parent domain does not have a consistent plane normal.')
+                planes[str(tag)] = surface[0].tolist()
                 candidate = np.cross(tangent, surface)
             length = np.linalg.norm(candidate, axis=1)
             if not np.isfinite(candidate).all() or np.any(length <= 0):
@@ -82,15 +90,20 @@ def boundary_normals(gmsh, dimension, points, point_tags, target):
                 else:
                     return _unavailable('Containment probes could not verify every outward normal; no partial or guessed normals are returned.')
             normals[mask] = candidate
-        return {'normals': normals.tolist(), 'normal_status': 'available',
+        result = {'normals': normals.tolist(), 'normal_status': 'available',
                 'normal_kind': 'outward_surface' if dimension == 2 else 'outward_conormal',
                 'normal_validation': 'tetrahedral containment probes (numerical)' if mesh_parents else 'CAD containment probes'}
+        if dimension == 1:
+            result['normal_planes'] = planes
+        return result
     except Exception as error:
         return _unavailable('Normal orientation could not be verified: ' + str(error))
 
 
 def validate_normals(batch):
     """Reject malformed arrays before exporting or restoring generated datasets."""
+    if 'normal_planes' in batch and 'normals' not in batch:
+        raise ValueError('Parent plane frames have missing boundary normals.')
     if 'normals' not in batch:
         if batch.get('normal_status') == 'available':
             raise ValueError('Available boundary normals are missing their numeric array.')
@@ -99,4 +112,18 @@ def validate_normals(batch):
     if (normals.shape != (batch['count'], 3) or not np.isfinite(normals).all()
             or not np.allclose(np.linalg.norm(normals, axis=1), 1, rtol=1e-6, atol=1e-8)):
         raise ValueError('Boundary normals must be finite unit vectors, one per point.')
+    if 'normal_planes' in batch:
+        planes = batch['normal_planes']
+        tags = np.asarray(batch['entity_tags'])
+        if (batch.get('entity_dimension') != 1 or batch.get('normal_kind') != 'outward_conormal'
+                or not isinstance(planes, dict) or tags.shape != (batch['count'],)
+                or set(planes) != {str(tag) for tag in np.unique(tags)}):
+            raise ValueError('Parent plane frames must match the sampled edge tags.')
+        for tag, values in planes.items():
+            plane = np.asarray(values, dtype=float)
+            if (plane.shape != (3,) or not np.isfinite(plane).all()
+                    or not np.isclose(np.linalg.norm(plane), 1., rtol=1e-6, atol=1e-8)):
+                raise ValueError('Parent plane normals must be finite unit vectors.')
+            if not np.allclose(normals[tags == int(tag)] @ plane, 0., atol=1e-6):
+                raise ValueError('Boundary co-normals must lie in their parent plane.')
     return normals

@@ -26,4 +26,9 @@ use `ds[ds[label].attrs['normals_coordinate']]`; in NPZ, load the key named by t
 region manifest. `normal_kind`, `normal_status` and `normal_validation` remain
 in metadata; numeric normals are not repeated in JSON. Project schema **2** also
 stores normals as numeric arrays and continues to read schema-1 projects.
+New planar edge datasets also store `normal_planes` in metadata: one unit parent
+plane normal per sampled edge tag, with string tag keys. This compact direction
+map enables correct co-normal transport after non-uniform scaling. It is optional
+for legacy datasets; malformed supplied frames are rejected when exporting or
+restoring a project.
 Malformed, non-finite, non-unit or missing advertised normal arrays are rejected.

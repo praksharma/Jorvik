@@ -24,11 +24,17 @@ boundary/interior consistency is explicitly unverified. Labels, original CAD,
 sampling recipes, point counts, entity tags, region assignments, colours and
 visibility are retained. Applicable existing surface normals follow the normalized inverse transpose of
 the linear map. Positive scaling preserves orientation; translation leaves
-normals unchanged. Planar boundary co-normals support rotation and uniform scale.
-After non-uniform scaling their numeric arrays are omitted and marked unavailable:
-correct transport also needs the original plane frame, which these datasets do
-not retain. Points still transform/export, with this limitation in their metadata.
-No normals are invented for open shells or datasets whose normals were unavailable.
+normals unchanged. New planar boundary samples retain a `normal_planes` metadata
+map from sampled edge tags (string keys) to unit parent-plane normals. Co-normals
+are transformed using their in-plane tangent and inverse-transpose plane normal,
+remaining outward and within the transformed plane under non-uniform scaling.
+Plane frames follow rotations/scaling and persist in projects, NetCDF and NPZ.
+
+Older datasets without plane frames still support rotation and uniform scaling;
+non-uniform scaling omits their co-normal arrays and marks them unavailable.
+Regenerate those samples from the original CAD to retain plane frames. No normals
+are invented for open shells or datasets whose normals were unavailable. Invalid
+frames, missing edge mappings or co-normals outside their plane are rejected.
 
 Scaling changes point density per unit length/area/volume, and non-uniform
 scaling can change relative surface density. Exports contain transformed points,

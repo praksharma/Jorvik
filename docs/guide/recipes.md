@@ -174,9 +174,27 @@ export_configuration(batches, restored, out / "one-configuration.nc")
 
 For selected clouds only, set `scope` to `"regions"` and `regions` to their exact
 dataset labels, for example `["inner"]`. CAD remains fixed in that preview;
-boundary/interior consistency is unverified. Scaling must be positive. Non-uniform
-scaling omits planar co-normals because their source plane frame is unavailable.
-Transforms do not resample the geometry or provide integration weights.
+boundary/interior consistency is unverified. Scaling must be positive. New planar samples retain the frames needed to preserve
+co-normals under non-uniform scaling; older samples without frames omit those
+arrays until regenerated. Transforms do not resample the geometry or provide
+integration weights.
+
+For example, stretch the annulus into an ellipse and retain its outward boundary
+co-normals. This continues with the `batches` and `base` defined above:
+
+```python
+from jorvik.parametrisation import transform_batches
+
+stretched_setup = dict(base, scale=[2.0, 3.0, 1.0])
+stretched_inner = transform_batches(batches, stretched_setup)[0]
+assert stretched_inner["normal_status"] == "available"
+assert "normal_planes" in stretched_inner
+np.testing.assert_allclose(np.linalg.norm(stretched_inner["normals"], axis=1), 1.0)
+export_configuration(batches, stretched_setup, out / "stretched.nc")
+```
+
+Each sampled edge's unit plane normal is recorded in `normal_planes`; it specifies
+a direction, not a plane origin or CAD regeneration parameter.
 
 ## Generate a parameter design
 

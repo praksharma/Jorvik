@@ -162,7 +162,7 @@ def preview_payload(setup):
 
 
 def transform_batches(batches, setup):
-    """Evaluate from original coordinates, mapping existing normals by A^-T."""
+    """Evaluate original points, transporting surface normals and planar co-normals."""
     offset = validate_setup(setup, batches)
     linear, offset = _affine_components(setup)
     affine = setup['schema_version'] == 2
@@ -183,17 +183,32 @@ def transform_batches(batches, setup):
             original_normals = validate_normals(batch)
             conormal = batch.get('normal_kind') == 'outward_conormal' or batch.get('entity_dimension') == 1
             anisotropic = len(set(setup['scale'])) != 1
-            if conormal and anisotropic:
+            if conormal and anisotropic and 'normal_planes' not in batch:
                 # Ambient A^-T is sufficient for codimension-one surface normals.
                 # Edge co-normals additionally need their parent plane's frame;
-                # original metadata does not retain that per-point information.
+                # Older datasets do not retain those per-edge plane frames.
                 record.pop('normals')
                 record.pop('normal_kind', None)
                 record['normal_status'] = 'unavailable'
                 record['normal_note'] = ('Non-uniform scaling of planar boundary co-normals requires '
                                          'the original plane frame. Points were transformed, but no guessed normals are exported.')
             else:
-                normals = original_normals @ np.linalg.inv(linear)
+                inverse = np.linalg.inv(linear)
+                normals = original_normals @ inverse
+                if conormal and 'normal_planes' in batch:
+                    tags = np.asarray(batch['entity_tags'])
+                    transformed_planes = {}
+                    for tag, values in batch['normal_planes'].items():
+                        plane = np.asarray(values, dtype=float)
+                        mapped_plane = plane @ inverse
+                        mapped_plane /= np.linalg.norm(mapped_plane)
+                        transformed_planes[tag] = mapped_plane.tolist()
+                        mask = tags == int(tag)
+                        # Transport the in-plane tangent and plane normal, then
+                        # recover the outward co-normal within the mapped plane.
+                        tangent = np.cross(plane, original_normals[mask]) @ linear.T
+                        normals[mask] = np.cross(tangent, mapped_plane)
+                    record['normal_planes'] = transformed_planes
                 lengths = np.linalg.norm(normals, axis=1, keepdims=True)
                 if not np.isfinite(normals).all() or np.any(lengths == 0):
                     raise ValueError('Transform produced invalid boundary normals.')

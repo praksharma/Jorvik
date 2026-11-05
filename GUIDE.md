@@ -381,6 +381,11 @@ use `ds[ds[label].attrs['normals_coordinate']]`; in NPZ, load the key named by t
 region manifest. `normal_kind`, `normal_status` and `normal_validation` remain
 in metadata; numeric normals are not repeated in JSON. Project schema **2** also
 stores normals as numeric arrays and continues to read schema-1 projects.
+New planar edge datasets also store `normal_planes` in metadata: one unit parent
+plane normal per sampled edge tag, with string tag keys. This compact direction
+map enables correct co-normal transport after non-uniform scaling. It is optional
+for legacy datasets; malformed supplied frames are rejected when exporting or
+restoring a project.
 Malformed, non-finite, non-unit or missing advertised normal arrays are rejected.
 
 ### Previews and generation lifecycle
@@ -683,11 +688,17 @@ boundary/interior consistency is explicitly unverified. Labels, original CAD,
 sampling recipes, point counts, entity tags, region assignments, colours and
 visibility are retained. Applicable existing surface normals follow the normalized inverse transpose of
 the linear map. Positive scaling preserves orientation; translation leaves
-normals unchanged. Planar boundary co-normals support rotation and uniform scale.
-After non-uniform scaling their numeric arrays are omitted and marked unavailable:
-correct transport also needs the original plane frame, which these datasets do
-not retain. Points still transform/export, with this limitation in their metadata.
-No normals are invented for open shells or datasets whose normals were unavailable.
+normals unchanged. New planar boundary samples retain a `normal_planes` metadata
+map from sampled edge tags (string keys) to unit parent-plane normals. Co-normals
+are transformed using their in-plane tangent and inverse-transpose plane normal,
+remaining outward and within the transformed plane under non-uniform scaling.
+Plane frames follow rotations/scaling and persist in projects, NetCDF and NPZ.
+
+Older datasets without plane frames still support rotation and uniform scaling;
+non-uniform scaling omits their co-normal arrays and marks them unavailable.
+Regenerate those samples from the original CAD to retain plane frames. No normals
+are invented for open shells or datasets whose normals were unavailable. Invalid
+frames, missing edge mappings or co-normals outside their plane are rejected.
 
 Scaling changes point density per unit length/area/volume, and non-uniform
 scaling can change relative surface density. Exports contain transformed points,
@@ -1273,9 +1284,27 @@ export_configuration(batches, restored, out / "one-configuration.nc")
 
 For selected clouds only, set `scope` to `"regions"` and `regions` to their exact
 dataset labels, for example `["inner"]`. CAD remains fixed in that preview;
-boundary/interior consistency is unverified. Scaling must be positive. Non-uniform
-scaling omits planar co-normals because their source plane frame is unavailable.
-Transforms do not resample the geometry or provide integration weights.
+boundary/interior consistency is unverified. Scaling must be positive. New planar samples retain the frames needed to preserve
+co-normals under non-uniform scaling; older samples without frames omit those
+arrays until regenerated. Transforms do not resample the geometry or provide
+integration weights.
+
+For example, stretch the annulus into an ellipse and retain its outward boundary
+co-normals. This continues with the `batches` and `base` defined above:
+
+```python
+from jorvik.parametrisation import transform_batches
+
+stretched_setup = dict(base, scale=[2.0, 3.0, 1.0])
+stretched_inner = transform_batches(batches, stretched_setup)[0]
+assert stretched_inner["normal_status"] == "available"
+assert "normal_planes" in stretched_inner
+np.testing.assert_allclose(np.linalg.norm(stretched_inner["normals"], axis=1), 1.0)
+export_configuration(batches, stretched_setup, out / "stretched.nc")
+```
+
+Each sampled edge's unit plane normal is recorded in `normal_planes`; it specifies
+a direction, not a plane origin or CAD regeneration parameter.
 
 #### Generate a parameter design
 

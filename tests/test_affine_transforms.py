@@ -242,3 +242,65 @@ class AffineTransformTest(unittest.TestCase):
                     with patch(writer, side_effect=OSError('Disk full')):
                         with self.assertRaises(OSError): export_configuration(batches, config, path)
                     self.assertEqual(path.read_bytes(), before)
+
+    def test_anisotropic_conormals_retain_per_edge_planes_and_outward_direction(self):
+        plane = np.ones(3) / math.sqrt(3)
+        normal = np.array([1., -1., 0.]) / math.sqrt(2)
+        source = batch()
+        source.update(entity_dimension=1, entities=[[1, 6], [1, 7]], entity_tags=[6, 7, 6],
+                      normals=[normal.tolist(), [0., 1., 0.], normal.tolist()],
+                      normal_status='available', normal_kind='outward_conormal',
+                      normal_planes={'6': plane.tolist(), '7': [0., 0., -1.]})
+        before = deepcopy(source)
+        config = affine_setup(scale=[2., 3., 4.], rotation_axis=[1., 2., 3.],
+                              rotation_angle=37., translation=[3., -2., 7.])
+        linear, _ = affine_transform(config)
+        mapped = transform_batches([source], config)[0]
+        from jorvik.normals import validate_normals
+        validate_normals(mapped)
+        for index, tag in enumerate(source['entity_tags']):
+            original_plane = np.array(source['normal_planes'][str(tag)])
+            original_normal = np.array(source['normals'][index])
+            tangent = linear @ np.cross(original_plane, original_normal)
+            new_plane = np.array(mapped['normal_planes'][str(tag)])
+            new_normal = np.array(mapped['normals'][index])
+            self.assertAlmostEqual(float(new_normal @ tangent), 0., places=12)
+            self.assertAlmostEqual(float(new_normal @ new_plane), 0., places=12)
+            self.assertAlmostEqual(float(np.linalg.norm(new_normal)), 1.)
+            self.assertGreater(float(new_normal @ (linear @ original_normal)), 0.)
+        # Ambient inverse-transpose alone is wrong for the oblique plane.
+        ambient = normal @ np.linalg.inv(linear); ambient /= np.linalg.norm(ambient)
+        self.assertGreater(np.linalg.norm(ambient - mapped['normals'][0]), 0.01)
+        for alternative in (affine_setup(), affine_setup(scale=[3., 3., 3.], rotation_angle=90.)):
+            result = transform_batches([source], alternative)[0]
+            validate_normals(result)
+        self.assertEqual(source, before)
+        with tempfile.TemporaryDirectory() as directory:
+            for fmt in ('nc', 'npz'):
+                path = Path(directory) / ('framed.' + fmt)
+                export_configuration([source], config, path)
+                if fmt == 'nc':
+                    with xr.open_dataset(path, engine='scipy') as data:
+                        metadata = json.loads(data.attrs['metadata_json'])
+                else:
+                    with np.load(path, allow_pickle=False) as data:
+                        metadata = json.loads(data['_gs_metadata'].item())
+                self.assertEqual(metadata['datasets'][0]['metadata']['normal_planes'], mapped['normal_planes'])
+                self.assertIn('normals', metadata['datasets'][0])
+
+    def test_invalid_plane_frames_are_rejected_without_mutation(self):
+        source = batch()
+        source.update(entity_dimension=1, entities=[[1, 6]], normals=[[1., 0., 0.]]*3,
+                      normal_status='available', normal_kind='outward_conormal')
+        invalid = [None, {}, {'7': [0., 0., 1.]}, {'6': [0., 0.]},
+                   {'6': [0., 0., 2.]}, {'6': [1., 0., 0.]},
+                   {'6': [float('nan'), 0., 1.]}]
+        for planes in invalid:
+            record = dict(source, normal_planes=planes)
+            with self.subTest(planes=planes), self.assertRaises(ValueError):
+                transform_batches([record], affine_setup(scale=[2., 3., 4.]))
+        from jorvik.export import to_xarray
+        for record in (dict(source, normal_planes={'6': [0., 0., 1.]}, entity_dimension=2),
+                       {key: value for key, value in dict(source, normal_planes={'6': [0., 0., 1.]}).items()
+                        if key != 'normals'}):
+            with self.assertRaises(ValueError): to_xarray([record])
