@@ -30,7 +30,7 @@ as an explicit set of their constituent faces or edges.
 The replacement runs in the normal background worker. Existing points remain
 visible/exportable in memory until successful completion. Success replaces one
 area, preserving colour, visibility and region isolation, and updates any current
-translation-setup label binding. Canceling the editor does nothing; generation
+transform-setup label binding. Canceling the editor does nothing; generation
 cancellation/failure retains the original recipe, label and samples. A failed or
 canceled area with no existing points can also be edited and generated. Use the
 existing Rename… and Change colour… actions for display-only changes without
@@ -51,12 +51,12 @@ Right-click a sampled dataset and choose **Duplicate dataset** to create a
 uniquely named copy, or **Delete dataset** to remove just that entry. Duplication
 shares immutable coordinate/tag/normal storage while keeping metadata separate;
 it does not resample the CAD. Delete and Clear generated datasets are undoable.
-Deleting the last region bound by a translation setup clears that setup; undo
+Deleting the last region bound by a transform setup clears that setup; undo
 restores it together with its datasets.
 
 History is local to the open document and is not stored in `.jorvik` archives.
 Opening geometry or a project starts fresh history. Undo/redo is unavailable
-during import, generation, project I/O and region/translation dialogs. Camera
+during import, generation, project I/O and region/parametrisation dialogs. Camera
 navigation, ordinary visibility changes, standalone sampling-control edits and
 unsaved dialog fields are not separate history entries. Numeric point buffers
 are shared between history snapshots, but retaining older generated datasets can

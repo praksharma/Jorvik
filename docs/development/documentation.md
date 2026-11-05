@@ -38,3 +38,10 @@ Keep detailed workflows, architecture, limitations and test instructions in this
 do not edit those generated pages directly. Add new guide headings to the script's
 page map so every section remains visible. The check fails on missing, stale or
 unmapped content. Edit `docs/index.md` for the landing page.
+
+When documenting a new workflow or public API, include a minimal command or Python
+snippet with its required inputs, output shape/files and relevant failure behaviour.
+Keep examples aligned with the implemented interface, identify snippets that share
+session variables, and run them against a small fixture before publishing. Extend
+**Practical recipes** for end-to-end examples; keep detailed limitations on the
+topic pages. Refresh landing-page feature claims alongside guide updates.

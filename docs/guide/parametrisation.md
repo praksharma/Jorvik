@@ -153,26 +153,9 @@ choose a new folder for another attempt. Each shard and each manifest checkpoint
 is written atomically. Original recipes, region seeds, methods and point counts
 are retained; affine mapping does not regenerate CAD or improve spatial accuracy.
 
-For example, read only successful NetCDF configurations (NumPy shards use the
-same journal and carry JSON metadata in `_gs_metadata`):
-
-```python
-import json
-from pathlib import Path
-import xarray as xr
-
-run = Path("parameter_sweep")
-for line in (run / "results.jsonl").read_text().splitlines():
-    result = json.loads(line)
-    if result["status"] != "complete":
-        continue
-    with xr.open_dataset(run / result["filename"], engine="scipy") as dataset:
-        regions = json.loads(dataset.attrs["metadata_json"])["datasets"]
-        parameters = dataset["_gs_design_values"].values
-        for region in regions:
-            coordinates = dataset[region["array"]].values
-            # Use region['label'] and its independent N×3 coordinates.
-```
+Use the validated readers below to consume successful configurations. They
+check completion state, provenance and available checksums. For copyable setup,
+design and export examples, see **Practical recipes** at the end of this guide.
 
 ## Reading sweeps for training
 

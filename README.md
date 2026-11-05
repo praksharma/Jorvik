@@ -33,7 +33,8 @@ For graphics compatibility, try `uv run jorvik --software-rendering`.
 
 ## Documentation
 
-Read the [user guide](GUIDE.md), try the [annulus example](examples/sample_annulus.py),
+Read the [user guide](GUIDE.md), copy the [practical recipes](GUIDE.md#practical-recipes),
+try the [annulus example](examples/sample_annulus.py),
 or preview the searchable Zensical site:
 
 ```sh

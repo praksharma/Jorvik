@@ -8,6 +8,7 @@ site_dir = "site"
 nav = [
   { "Overview" = "index.md" },
   { "Get started" = "guide/getting-started.md" },
+  { "Practical recipes" = "guide/recipes.md" },
   { "User guide" = [
     { "Workspace and visibility" = "guide/workspace.md" },
     { "Geometry and selection" = "guide/geometry.md" },

@@ -119,7 +119,7 @@ cross-machine guarantees. Reducing numeric/list copies remains open work.
 Projects contain the main CAD source, cached display topology, original generated
 coordinates and entity tags, generated/failed region records, sampling recipes,
 colours, per-region/global visibility, individual face filters, CAD selection,
-point appearance, camera, dock layout and the current translation setup. Geometry
+point appearance, camera, dock layout and the current transform/design setup. Geometry
 and coordinate arrays use compressed numeric storage rather than large JSON lists
 on disk, and load without pickle. Opening restores cached samples and display
 without CAD execution, remeshing or regeneration. Writes use atomic replacement;

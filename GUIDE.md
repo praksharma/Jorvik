@@ -80,8 +80,9 @@ Before a general release, finish broader CAD trim/containment validation,
 small-feature and normal-orientation checks, real exporter compatibility,
 large-project memory reductions/viewport measurements and cross-platform
 installation checks. Unknown units and assembly metadata remain
-explicit limitations. Full parameter sweeps, rotation/scaling, CAD regeneration
-and licensed translators are later roadmap work, not implemented release claims.
+explicit limitations. Affine rotation/scaling and sequential parameter sweeps are
+implemented in the current development preview; CAD regeneration and licensed
+translators remain later roadmap work.
 
 ## Installation and first dataset
 
@@ -201,6 +202,13 @@ Keep detailed workflows, architecture, limitations and test instructions in this
 do not edit those generated pages directly. Add new guide headings to the script's
 page map so every section remains visible. The check fails on missing, stale or
 unmapped content. Edit `docs/index.md` for the landing page.
+
+When documenting a new workflow or public API, include a minimal command or Python
+snippet with its required inputs, output shape/files and relevant failure behaviour.
+Keep examples aligned with the implemented interface, identify snippets that share
+session variables, and run them against a small fixture before publishing. Extend
+**Practical recipes** for end-to-end examples; keep detailed limitations on the
+topic pages. Refresh landing-page feature claims alongside guide updates.
 
 ## Provenance
 
@@ -571,12 +579,12 @@ Right-click a sampled dataset and choose **Duplicate dataset** to create a
 uniquely named copy, or **Delete dataset** to remove just that entry. Duplication
 shares immutable coordinate/tag/normal storage while keeping metadata separate;
 it does not resample the CAD. Delete and Clear generated datasets are undoable.
-Deleting the last region bound by a translation setup clears that setup; undo
+Deleting the last region bound by a transform setup clears that setup; undo
 restores it together with its datasets.
 
 History is local to the open document and is not stored in `.jorvik` archives.
 Opening geometry or a project starts fresh history. Undo/redo is unavailable
-during import, generation, project I/O and region/translation dialogs. Camera
+during import, generation, project I/O and region/parametrisation dialogs. Camera
 navigation, ordinary visibility changes, standalone sampling-control edits and
 unsaved dialog fields are not separate history entries. Numeric point buffers
 are shared between history snapshots, but retaining older generated datasets can
@@ -791,26 +799,9 @@ choose a new folder for another attempt. Each shard and each manifest checkpoint
 is written atomically. Original recipes, region seeds, methods and point counts
 are retained; affine mapping does not regenerate CAD or improve spatial accuracy.
 
-For example, read only successful NetCDF configurations (NumPy shards use the
-same journal and carry JSON metadata in `_gs_metadata`):
-
-```python
-import json
-from pathlib import Path
-import xarray as xr
-
-run = Path("parameter_sweep")
-for line in (run / "results.jsonl").read_text().splitlines():
-    result = json.loads(line)
-    if result["status"] != "complete":
-        continue
-    with xr.open_dataset(run / result["filename"], engine="scipy") as dataset:
-        regions = json.loads(dataset.attrs["metadata_json"])["datasets"]
-        parameters = dataset["_gs_design_values"].values
-        for region in regions:
-            coordinates = dataset[region["array"]].values
-            # Use region['label'] and its independent N×3 coordinates.
-```
+Use the validated readers below to consume successful configurations. They
+check completion state, provenance and available checksums. For copyable setup,
+design and export examples, see **Practical recipes** at the end of this guide.
 
 #### Reading sweeps for training
 
@@ -1057,7 +1048,7 @@ cross-machine guarantees. Reducing numeric/list copies remains open work.
 Projects contain the main CAD source, cached display topology, original generated
 coordinates and entity tags, generated/failed region records, sampling recipes,
 colours, per-region/global visibility, individual face filters, CAD selection,
-point appearance, camera, dock layout and the current translation setup. Geometry
+point appearance, camera, dock layout and the current transform/design setup. Geometry
 and coordinate arrays use compressed numeric storage rather than large JSON lists
 on disk, and load without pickle. Opening restores cached samples and display
 without CAD execution, remeshing or regeneration. Writes use atomic replacement;
@@ -1088,8 +1079,306 @@ as an explicit set of their constituent faces or edges.
 The replacement runs in the normal background worker. Existing points remain
 visible/exportable in memory until successful completion. Success replaces one
 area, preserving colour, visibility and region isolation, and updates any current
-translation-setup label binding. Canceling the editor does nothing; generation
+transform-setup label binding. Canceling the editor does nothing; generation
 cancellation/failure retains the original recipe, label and samples. A failed or
 canceled area with no existing points can also be edited and generated. Use the
 existing Rename… and Change colour… actions for display-only changes without
 regeneration. Saving/opening projects while a replacement is running is blocked.
+
+
+## Practical recipes
+
+These recipes cover installation, project hand-off, sampling, exports, transforms,
+parameter designs and training reads. Python snippets from **Create an empty
+project** onward form one worked example: run them in order in a Python session
+started from the repository root with `uv run python`. They write to
+`recipe-output/`; use a fresh folder when repeating project creation or sweep
+export. Geometry entity IDs below belong only to the included annulus fixture.
+
+#### Install and launch
+
+From a checkout, install the locked environment and open geometry:
+
+```sh
+uv sync --locked
+uv run jorvik examples/geometries/cfdbench/annulus_unstructured.geo
+# Open an editable project instead:
+uv run jorvik path/to/model.jorvik
+# Use the compatibility renderer when needed:
+uv run jorvik --software-rendering path/to/model.jorvik
+```
+
+The `path/to/model.jorvik` commands assume that document already exists. Jorvik
+reports a missing or invalid file; launching does not create it. Legacy `.gsproj`
+documents remain readable. Project files preserve editable work; `.nc` and `.npz`
+files contain exported data.
+
+To install a GitHub revision into another application's **existing** environment,
+replace `/path/to/host` and `COMMIT_SHA` with its actual location and a pushed commit:
+
+```sh
+uv pip install --python /path/to/host/.venv/bin/python "jorvik @ git+https://github.com/praksharma/Jorvik.git@COMMIT_SHA"
+uv pip check --python /path/to/host/.venv/bin/python
+/path/to/host/.venv/bin/jorvik --version
+```
+
+Only pushed commits are available through GitHub. For unpushed local work, use
+`uv pip install --python /path/to/host/.venv/bin/python -e .` from this checkout.
+The host must meet Jorvik's Python/dependency requirements, including its PySide6
+pin. Declare the dependency in the host's own project configuration to retain it
+across environment synchronisation. These commands target that environment;
+they do not require changing Jorvik's standalone Python version.
+
+#### Create an empty project
+
+This API does not import Qt or start the GUI:
+
+```python
+from pathlib import Path
+from jorvik.project import create_empty_project, load_project
+
+out = Path("recipe-output")
+out.mkdir(exist_ok=True)
+project = create_empty_project(out / "model.jorvik")
+manifest, geometry_or_none = load_project(project)
+assert geometry_or_none is None
+print(project)  # recipe-output/model.jorvik
+```
+
+An existing destination raises `FileExistsError`. Use `overwrite=True` only for
+intentional replacement. To edit the document, launch `jorvik
+recipe-output/model.jorvik`, choose **Open geometry**, then **Save project**.
+The imported geometry is saved back into that same project file.
+
+An external application's launch code can be as small as this (run separately,
+in the environment where Jorvik is installed):
+
+```sh
+/path/to/host/.venv/bin/jorvik /absolute/path/to/model.jorvik
+```
+
+For a Python host, use `subprocess.Popen([str(jorvik_executable), str(project)])`
+with the installed executable's absolute path. Pass arguments as a list so paths
+with spaces stay intact. There is no dependency on the calling application and
+no live synchronisation between applications.
+
+#### Generate labelled samples without the GUI
+
+Create a boundary region on the annulus's four inner arcs, then sample that region
+and the interior with different counts. The seed controls spatial sampling.
+
+```python
+from jorvik.geometry import load_geometry
+from jorvik.regions import put_region, region_snapshot
+from jorvik.sampling import sample_geometry
+from jorvik.export import export_samples
+
+geometry = load_geometry("examples/geometries/cfdbench/annulus_unstructured.geo")
+regions = put_region([], geometry, "inner", [[1, tag] for tag in range(1, 5)], "#ffc857")
+inner = regions[0]
+batches = []
+for label, count, region in [("inner", 32, inner), ("interior", 64, None)]:
+    request = {key: geometry[key] for key in ("source", "source_hash", "document")}
+    request.update(
+        label=label, count=count, target="region" if region else "interior",
+        entities=region["entities"] if region else [], method="sobol", seed=42,
+        resolution=32, compute_mode="reproducible", cpu_threads=1,
+    )
+    if region:
+        request["boundary_region"] = region_snapshot(regions, geometry, region["id"])
+    batches.append(sample_geometry(request))
+
+export_samples(batches, out / "samples.nc")
+export_samples(batches, out / "samples.npz")
+print([(batch["label"], batch["count"]) for batch in batches])
+# [('inner', 32), ('interior', 64)]
+```
+
+Coordinates remain in unspecified source geometry units. Region labels are
+arbitrary metadata, with no assigned boundary-condition values. For a complete
+standalone script including round-trip checks, run
+`uv run python examples/sample_annulus.py --output-dir annulus-output --count 128`.
+
+#### Load every label, including spaces and Unicode
+
+Read the label map rather than guessing internal variable names. Copy arrays
+inside the context manager so they remain independent after the file closes.
+
+```python
+import json
+import xarray as xr
+import numpy as np
+
+with xr.open_dataset(out / "samples.nc", engine="scipy") as dataset:
+    records = json.loads(dataset.attrs["metadata_json"])["datasets"]
+    nc_points = {record["label"]: dataset[record["array"]].values.copy()
+                 for record in records}
+    nc_tags = {record["label"]: dataset[record["entity_tags"]].values.copy()
+               for record in records}
+    nc_normals = {record["label"]: dataset[record["normals"]].values.copy()
+                  for record in records if "normals" in record}
+
+with np.load(out / "samples.npz", allow_pickle=False) as archive:
+    records = json.loads(archive["_gs_metadata"].item())["datasets"]
+    npz_points = {record["label"]: archive[record["array"]].copy()
+                  for record in records}
+
+for label in nc_points:
+    np.testing.assert_array_equal(nc_points[label], npz_points[label])
+print({label: points.shape for label, points in nc_points.items()})
+# {'inner': (32, 3), 'interior': (64, 3)}
+```
+
+Normals are optional: test for their presence in the label map. The annulus inner
+boundary has planar co-normals; its interior has no outward normal. Metadata
+records unavailable-normal reasons for other geometry. Independent point counts
+stay independent; do not concatenate boundary and interior arrays merely to make
+one rectangular dataset.
+
+#### Save a transform and export one configuration
+
+The setup binds to the actual geometry hash, applies scale → rotation → translation
+about a shared pivot, and preserves the original samples. Here a whole-domain
+configuration rotates 30 degrees about Z, then translates one source unit in X.
+
+```python
+from jorvik.parametrisation import save_setup, load_setup, export_configuration
+
+base = {
+    "schema_version": 2, "scope": "domain", "regions": [],
+    "source_hash": geometry["source_hash"],
+    "translation": [1.0, 0.0, 0.0],
+    "rotation_axis": [0.0, 0.0, 1.0], "rotation_angle": 30.0,
+    "angle_units": "degrees", "scale": [1.0, 1.0, 1.0],
+    "pivot": [0.0, 0.0, 0.0],
+    "order": ["scale", "rotate", "translate"], "frame": "world",
+}
+save_setup(base, out / "transform.json")
+restored = load_setup(out / "transform.json")
+export_configuration(batches, restored, out / "one-configuration.nc")
+```
+
+For selected clouds only, set `scope` to `"regions"` and `regions` to their exact
+dataset labels, for example `["inner"]`. CAD remains fixed in that preview;
+boundary/interior consistency is unverified. Scaling must be positive. Non-uniform
+scaling omits planar co-normals because their source plane frame is unavailable.
+Transforms do not resample the geometry or provide integration weights.
+
+#### Generate a parameter design
+
+This Cartesian design assigns three rotation angles and two X translations,
+producing six scalar configurations. Named values assign transform components
+absolutely: `shift=0` replaces the base translation of 1; it does not add to it.
+
+```python
+from jorvik.parameter_design import design_summary, generate_configurations
+
+design = {
+    "schema_version": 1, "method": "cartesian", "seed": 42, "count": 6,
+    "parameters": [
+        {"name": "angle", "target": "rotation_angle", "mode": "values",
+         "values": [0.0, 30.0, 60.0], "reference": 0.0, "unit": "degrees"},
+        {"name": "shift", "target": "translation_x", "mode": "values",
+         "values": [0.0, 1.0], "reference": 0.0, "unit": "source"},
+    ],
+}
+base["design"] = design
+summary = design_summary(design, batches)
+configurations = generate_configurations(base, design)
+print(summary["count"], summary["total_points"])  # 6 576
+print(configurations[0]["id"], configurations[0]["parameters"])
+# configuration_000001 {'angle': 0.0, 'shift': 0.0}
+export_configuration(batches, configurations[0]["setup"], out / "selected.npz")
+```
+
+For Cartesian/paired designs, each parameter's list length or range `count`
+determines the configuration count. The top-level `count` controls stochastic
+methods. The reference value is descriptive metadata. Generating configurations
+allocates scalar plans, not six copies of the point clouds.
+
+For a seeded Sobol design instead, use ranges and a power-of-two total count:
+
+```python
+sobol_design = {
+    "schema_version": 1, "method": "sobol", "seed": 42, "count": 8,
+    "parameters": [
+        {"name": "angle", "target": "rotation_angle", "mode": "range",
+         "start": 0.0, "stop": 60.0, "reference": 0.0, "unit": "degrees"},
+    ],
+}
+sobol_base = {key: value for key, value in base.items() if key != "design"}
+sobol_base["design"] = sobol_design
+sobol_configurations = generate_configurations(sobol_base, sobol_design)
+assert len(sobol_configurations) == 8
+```
+
+Use `"random"` or `"lhs"` in place of `"sobol"` for the other seeded range
+methods. Use `"paired"` with equal-length value lists to pair entries by position
+instead of taking their Cartesian product. Design seeds are separate from spatial
+sampling seeds. Plans are limited to 10,000 configurations.
+
+#### Export a sweep and verify training arrays
+
+Continue with the six-row Cartesian `base` and `configurations` above. The output
+directory must not already exist. NetCDF is the default; set `file_format="npz"`
+for NumPy shards.
+
+```python
+from jorvik.sweep_export import export_sweep
+from jorvik.sweep_results import inspect_sweep, iter_sweep_datasets, training_arrays
+
+run = out / "sweep"
+result = export_sweep(batches, base, configurations, run, file_format="nc")
+assert result["status"] == "complete"
+assert len(inspect_sweep(run, require_integrity=True)["completed"]) == 6
+
+for configuration in iter_sweep_datasets(run, require_integrity=True):
+    columns = ["x", "y", "z", *configuration["parameters"]]
+    inputs = training_arrays(configuration)
+    assert columns == ["x", "y", "z", "angle", "shift"]
+    assert inputs["inner"].shape == (32, 5)
+    assert inputs["interior"].shape == (64, 5)
+    # Feed each label's array to downstream code here.
+    # Normals/tags remain in configuration['datasets'].
+```
+
+Each shard is checked against its SHA-256 hash before loading. Only one
+configuration's arrays need to stay in memory; converting the iterator to a list
+retains all of them. `require_integrity=True` rejects legacy runs without hashes.
+Checksums detect accidental changes, not replacement of files and hashes together.
+
+For an intentionally partial run, opt in explicitly. To request cancellation in
+a non-GUI caller, pass a callable such as `cancelled=stop_event.is_set` to
+`export_sweep`; the current file finishes before stopping. `fail_fast=False`
+attempts later configurations after a failure. Completed files remain readable
+with `iter_sweep_datasets(run, allow_partial=True, require_integrity=True)`;
+failed and pending entries are not yielded. Resume/retry is still future work.
+
+From a checkout, inspect status or verify all completed files:
+
+```sh
+uv run python tools/inspect_sweep.py recipe-output/sweep
+uv run python tools/inspect_sweep.py recipe-output/sweep --verify --require-integrity
+# Explicitly allow successful outputs from a partial run:
+uv run python tools/inspect_sweep.py recipe-output/sweep --allow-partial --verify
+```
+
+#### Desktop shortcuts and common tasks
+
+| Task | Steps | Result |
+| --- | --- | --- |
+| Create a boundary region | Select edges/faces → **Boundary regions…** → name → **Save region** | Labels existing CAD entities; no geometry partitioning |
+| Compare sampling methods | Generate a dataset, change method/seed, generate another | Separate labelled datasets you can show/hide |
+| Undo or redo an edit | `Ctrl+Z`; `Ctrl+Shift+Z` or `Ctrl+Y` | Restores supported edits within the current document's 30-entry history |
+| Duplicate or delete data | Right-click a sampled dataset → **Duplicate dataset** / **Delete dataset** | Undoable dataset edits; duplication does not resample |
+| Preview a transform | **Parametrisation…** → edit **Parameters** → **Preview configuration** | Explicit preview from original points |
+| Restore original display | **Restore original view** | Clears the preview while retaining setup values |
+| Make a design | **Combinations** → enable design → add parameters → **Generate configurations** | Scalar rows; selecting one alone does not preview it |
+| Find a configuration | Type an ID, parameter name or value into the search box | Filters the table; does not reduce a full sweep export |
+| Process all configurations | **Processing** → **Export generated design…** → new folder | Background export, progress and cancellation |
+| Recover interrupted work | Use the recovery workflow on the **Projects and recovery** page | Review recovery copies before replacing saved work |
+
+Saving a project retains transform/design definitions, but not the generated
+configuration table or session undo history. Reopen it, then explicitly generate
+configurations again. See the topic pages for selection, normals, recovery and
+accuracy limitations in more detail.

@@ -80,5 +80,6 @@ Before a general release, finish broader CAD trim/containment validation,
 small-feature and normal-orientation checks, real exporter compatibility,
 large-project memory reductions/viewport measurements and cross-platform
 installation checks. Unknown units and assembly metadata remain
-explicit limitations. Full parameter sweeps, rotation/scaling, CAD regeneration
-and licensed translators are later roadmap work, not implemented release claims.
+explicit limitations. Affine rotation/scaling and sequential parameter sweeps are
+implemented in the current development preview; CAD regeneration and licensed
+translators remain later roadmap work.

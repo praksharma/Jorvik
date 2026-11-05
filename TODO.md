@@ -10,6 +10,11 @@ Keep the geometry interface independent of Qt, Three.js and Gmsh-specific object
 so a direct Open CASCADE/OCP backend can be evaluated later. Prepared CAD already
 contains the boundary partitions; Jorvik does not create or edit them.
 
+## Documentation
+
+- [x] Copyable recipes for installation, project hand-off, sampling, labelled exports,
+      transforms, parameter designs, verified sweep reads and desktop workflows.
+
 ## Completed foundation
 
 - [x] Initialise package and Git repository.

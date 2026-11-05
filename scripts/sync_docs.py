@@ -6,6 +6,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = [
+    ('guide/recipes.md', 'Practical recipes', ['Practical recipes']),
     ('guide/getting-started.md', 'Install and create your first dataset', ['Installation and first dataset']),
     ('guide/workspace.md', 'Workspace and visibility', ['Desktop foundation', 'Toolbar and visibility', 'Face and sampled-area context menus']),
     ('guide/geometry.md', 'Geometry import and selection', ['Geometry import and selection', 'Neutral CAD import']),
