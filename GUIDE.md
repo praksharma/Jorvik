@@ -187,6 +187,19 @@ system fonts. The published URL is <https://praksharma.github.io/Jorvik/>, set a
 `site_url` in `zensical.toml` so project-site links and canonical URLs include
 `/Jorvik/`.
 
+The top bar links to the GitHub repository beside search on wide screens. Zensical
+fetches public GitHub star/fork counts in the browser; no extra plugin is needed.
+These settings in `zensical.toml` enable the repository header:
+
+```toml
+[project]
+repo_url = "https://github.com/praksharma/Jorvik"
+repo_name = "praksharma/Jorvik"
+```
+
+Counts need access to GitHub's API and may be unavailable offline or when rate
+limited. The repository link still works independently of the counts.
+
 In GitHub Settings → Pages, select **GitHub Actions** as the source. The
 Documentation workflow checks canonical pages and performs a clean, strict
 Zensical build. Pull requests are checked without deploying. Matching pushes to

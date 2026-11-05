@@ -1,6 +1,8 @@
 [project]
 site_name = "Jorvik"
 site_url = "https://praksharma.github.io/Jorvik/"
+repo_url = "https://github.com/praksharma/Jorvik"
+repo_name = "praksharma/Jorvik"
 site_description = "Geometry-aware sampling for PINNs and scientific machine learning"
 copyright = "Jorvik · AGPL-3.0-only"
 docs_dir = "docs"
