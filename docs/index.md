@@ -38,6 +38,7 @@ physics, prescribed boundary values and solvers belong in downstream tools.
 | Save/load reusable sampling settings | [Sampling recipes](guide/sampling.md#sampling-recipe-files) |
 | Choose a sampling method and accuracy | [Sampling and accuracy](guide/sampling.md) |
 | Understand outward directions and unavailable normals | [Boundary normals](guide/normals.md) |
+| Save CAD and recipes without large point clouds | [Lightweight project copies](guide/projects.md#save-a-lightweight-copy-without-points) |
 | Save work or recover an interrupted session | [Projects and recovery](guide/projects.md) |
 | Automate integration or copy Python examples | [Code recipes (advanced)](guide/recipes.md) |
 | Install this development preview | [Installation and launch](development/installation.md) |

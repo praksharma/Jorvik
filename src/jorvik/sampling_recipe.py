@@ -35,6 +35,14 @@ def validate_recipe(recipe):
         raise ValueError('Unsupported recipe import options.')
     if geometry.get('source_format') is None or 'import_options' not in geometry:
         raise ValueError('Recipe needs geometry format and import settings.')
+    if set(geometry) - {'source_hash', 'source_format', 'import_options'}:
+        raise ValueError('Recipes contain settings and references only, without generated point arrays.')
+    validate_settings(settings)
+
+
+def validate_settings(settings):
+    """Validate sampling inputs independently of optional legacy provenance."""
+    if not isinstance(settings, dict): raise ValueError('Sampling settings must be an object.')
     target = settings.get('target')
     if target not in ('selection', 'group', 'region', 'interior'):
         raise ValueError('Invalid recipe sampling target.')
@@ -65,7 +73,7 @@ def validate_recipe(recipe):
     elif 'region' in settings:
         raise ValueError('Only region recipes can contain a boundary-region reference.')
     allowed = set(FIELDS) | {'region'}
-    if set(settings) - allowed or set(geometry) - {'source_hash', 'source_format', 'import_options'}:
+    if set(settings) - allowed:
         raise ValueError('Recipes contain settings and references only, without generated point arrays.')
 
 
@@ -131,3 +139,45 @@ def bind_recipe(recipe, geometry, regions=()):
         settings['boundary_region'] = deepcopy(match)
     settings.update({key: deepcopy(geometry[key]) for key in ('source', 'source_hash', 'document', 'source_format', 'import_options')})
     return settings
+
+
+def request_from_area(area, geometry):
+    """Restore the original sampling request from a project dataset/recipe.
+
+    Keep recorded region snapshots rather than silently applying edited live
+    regions. Legacy projects may lack importer provenance; do not invent it.
+    No points are copied and no CAD is executed here.
+    """
+    validate_import_metadata(area)
+    if area.get('source_hash') != geometry['source_hash'] or area.get('document') != geometry['document']:
+        raise ValueError('Saved recipe belongs to a different geometry/document.')
+    for field in ('source_format', 'import_options'):
+        if field in area and field in geometry and area[field] != geometry[field]:
+            raise ValueError('Saved recipe import settings differ from the project geometry.')
+    defaults = {'resolution': 32, 'compute_mode': 'reproducible', 'cpu_threads': 1}
+    try: settings = {key: deepcopy(area[key] if key in area else defaults[key]) for key in FIELDS}
+    except KeyError as error: raise ValueError(f'Missing saved recipe setting: {error.args[0]}') from None
+    settings['count'] = area.get('requested_count', settings['count'])
+    if settings['target'] == 'interior': settings['entities'] = []
+    if settings['compute_mode'] == 'reproducible': settings['cpu_threads'] = 1
+    if settings['target'] == 'region':
+        snapshot = area.get('boundary_region')
+        from .regions import validate_regions
+        validate_regions([snapshot], geometry)
+        settings['region'] = {key: deepcopy(snapshot[key]) for key in ('label', 'entities')}
+    validate_settings(settings)
+    available = {(entity['dimension'], entity['tag']) for entity in geometry['entities']}
+    if not {tuple(entity) for entity in settings['entities']} <= available:
+        raise ValueError('Saved recipe references missing faces or edges.')
+    if settings['target'] == 'group':
+        dimension = settings['entities'][0][0]
+        tags = {item[1] for item in settings['entities']}
+        if not any(group['dimension'] == dimension and set(group['entities']) == tags for group in geometry['groups']):
+            raise ValueError('Saved recipe references a missing or changed imported group.')
+    settings.pop('region', None)
+    request = {key: deepcopy(geometry[key]) for key in ('source', 'source_hash', 'document')}
+    for field in ('source_format', 'import_options'):
+        if field in geometry: request[field] = deepcopy(geometry[field])
+    request.update(settings)
+    if settings['target'] == 'region': request['boundary_region'] = deepcopy(area['boundary_region'])
+    return request

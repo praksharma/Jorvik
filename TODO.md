@@ -353,7 +353,9 @@ are outside the initial release; use the verified neutral export formats instead
 - [ ] Extend setup JSON with CAD regeneration recipes.
 - [x] Full project persistence for geometry, regions, recipes, generated points and
       translation setup; embed the main CAD source and validate source hashes.
-- [ ] Optional point-cloud omission and full `.geo` dependency bundling/checksums.
+- [x] Optional point-cloud omission with a separate lightweight project copy,
+      validated pending recipes, unchanged active data, and explicit regeneration.
+- [ ] Full `.geo` dependency bundling/checksums.
 - [x] Retain setup changes when reopening the workspace and include them in projects;
       remap region renames and clear bindings when datasets/model are cleared.
 - [x] Explicit new/reset parametrisation setup action; restore the original view,

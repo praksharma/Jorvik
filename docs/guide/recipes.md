@@ -163,6 +163,37 @@ records unavailable-normal reasons for other geometry. Independent point counts
 stay independent; do not concatenate boundary and interior arrays merely to make
 one rectangular dataset.
 
+## Write a lightweight project in Python
+
+If you already have the geometry, sampled-area records and project state, use the
+Qt-independent project API:
+
+`save_project("recipes.jorvik", geometry, areas, state, include_samples=False)`
+accepts the same inputs as a normal project save.
+
+Here is an executable example continuing from the empty project created earlier.
+It loads an existing document and saves a lightweight copy without changing it:
+
+```python
+from jorvik.project import load_project, save_project
+
+existing, _ = load_project(project)
+areas = [(record["area"], record["status"], record["visible"])
+         for record in existing["areas"]]
+save_project(out / "project-copy.jorvik", existing["geometry"], areas,
+             existing["state"], include_samples=False)
+assert load_project(out / "project-copy.jorvik")[0]["geometry"] is None
+```
+
+For a populated project this preserves CAD and recipe records and omits samples;
+for an already-empty document it remains empty. `include_samples` defaults to
+`True`, so existing API calls retain their behavior. Call
+`jorvik.sampling_recipe.request_from_area(area, geometry)` to rebuild a generation
+request from a saved recipe; then call `sample_geometry(request)` explicitly.
+It validates source/document identity and references without copying point arrays
+or executing CAD. Original requested counts are used rather than clipped outputs.
+Do not use `create_recipe` on a generated batch as a substitute for this helper.
+
 ## Save and rebind a sampling recipe in Python
 
 This continues with the last sampling `request`, loaded `geometry` and saved

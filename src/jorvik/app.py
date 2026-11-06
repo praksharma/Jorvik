@@ -53,6 +53,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.open_project_action = file_menu.addAction('Open project…', self.open_project, 'Ctrl+Shift+O')
         self.save_project_action = file_menu.addAction('Save project', self.save_project, 'Ctrl+S')
         self.save_project_as_action = file_menu.addAction('Save project as…', lambda: self.save_project(True), 'Ctrl+Shift+S')
+        self.lightweight_copy_action = file_menu.addAction('Save lightweight copy (no samples)…', self.save_lightweight_copy)
         file_menu.addSeparator()
         self.export_action = file_menu.addAction("&Export samples…", self.export_samples, "Ctrl+Alt+E")
         self.export_action.setEnabled(False)
@@ -409,6 +410,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         menu.addAction('Rename…', lambda: self.rename_area(label)).setEnabled(not self.sampling.process)
         menu.addAction('Change colour…', lambda: self.change_area_colour(label)).setEnabled(status == 'Generated')
         menu.addAction('Edit…', lambda: self.edit_area(label)).setEnabled(not self.sampling.process and not self.parametrisation_dialog)
+        menu.addAction('Regenerate saved recipe', lambda: self.regenerate_area(label)).setEnabled(not self.project_busy())
         menu.addAction('Duplicate dataset', lambda: self.duplicate_area(label)).setEnabled(status == 'Generated' and not self.project_busy())
         menu.addAction('Delete dataset', lambda: self.delete_area(label)).setEnabled(not self.project_busy())
         menu.addSeparator()
@@ -433,6 +435,18 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         for label, item in self.sampled_areas.items.items():
             if self.sampled_areas.areas[label][1] == 'Generated':
                 item.setCheckState(0, Qt.CheckState.Checked)
+
+    def regenerate_area(self, label):
+        if self.project_busy() or label not in self.sampled_areas.areas: return False
+        try:
+            from .sampling_recipe import request_from_area
+            area, _ = self.sampled_areas.areas[label]
+            request = request_from_area(area, self.geometry)
+        except (ValueError, TypeError, KeyError) as error:
+            QMessageBox.warning(self, 'Could not regenerate saved recipe', str(error))
+            return False
+        self.sampling.generate_request(request, replace_label=label)
+        return True
 
     def edit_area(self, label):
         if self.project_busy():

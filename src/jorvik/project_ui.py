@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 from PySide6.QtCore import Qt, QByteArray, QEventLoop, QTimer
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressBar
-from .project import save_project, load_project, PROJECT_EXTENSION, PROJECT_FILTER
+from .project import save_project, load_project, PROJECT_EXTENSION, PROJECT_EXTENSIONS, PROJECT_FILTER
 from .recovery import RecoveryActions
 
 
@@ -23,6 +23,7 @@ class ProjectActions(RecoveryActions):
         self.open_project_action.setEnabled(not busy)
         self.save_project_action.setEnabled(not busy)
         self.save_project_as_action.setEnabled(not busy)
+        self.lightweight_copy_action.setEnabled(not busy and self.geometry is not None)
         self.refresh_history_actions()
 
     def project_state(self, camera=None):
@@ -114,17 +115,29 @@ class ProjectActions(RecoveryActions):
             return self.save_project()
         return answer == QMessageBox.StandardButton.Discard
 
-    def save_project(self, save_as=False):
+    def save_lightweight_copy(self):
+        if self.geometry is None or self.project_busy(): return False
+        return self.save_project(True, lightweight=True)
+
+    def save_project(self, save_as=False, *, lightweight=False):
         if self.project_busy():
             return False
         path=self.project_path if not save_as else None
         if not path:
             suggested = (self.project_path.with_suffix(PROJECT_EXTENSION) if self.project_path else
                          Path((Path(self.geometry['name']).stem if self.geometry else 'Untitled') + PROJECT_EXTENSION))
-            filename,_=QFileDialog.getSaveFileName(self,'Save Jorvik project',str(suggested),PROJECT_FILTER)
+            if lightweight: suggested = suggested.with_name(suggested.stem + '_recipes' + PROJECT_EXTENSION)
+            title = 'Save lightweight copy without sample arrays' if lightweight else 'Save Jorvik project'
+            filename,_=QFileDialog.getSaveFileName(self,title,str(suggested),PROJECT_FILTER)
             if not filename:return False
             path=Path(filename)
             if not path.suffix:path=path.with_suffix(PROJECT_EXTENSION)
+        if lightweight and Path(path).suffix.lower() not in PROJECT_EXTENSIONS:
+            QMessageBox.warning(self, 'Project filename', 'Choose a .jorvik project filename for the lightweight copy.')
+            return False
+        if lightweight and self.project_path is not None and Path(path).resolve() == self.project_path.resolve():
+            QMessageBox.warning(self, 'Choose another filename', 'Save the lightweight copy separately to preserve the current project file.')
+            return False
         result = []
         loop = QEventLoop()
         self.saving_project = True
@@ -135,12 +148,18 @@ class ProjectActions(RecoveryActions):
                 areas=[(area,status,self.sampled_areas.items[label].checkState(0)==Qt.CheckState.Checked)
                        for label,(area,status) in self.sampled_areas.areas.items()]
                 state = self.project_state(camera) if self.geometry is not None else {}
-                self.project_io_call(lambda: save_project(path,self.geometry,areas,state))
-                self.project_path=Path(path)
-                self.setWindowTitle('Jorvik — '+self.project_path.name)
-                self.statusBar().showMessage('Project saved: '+str(path))
-                self.mark_project_clean()
-                self.clear_recovery()
+                if lightweight:
+                    self.project_io_call(lambda: save_project(path,self.geometry,areas,state,include_samples=False))
+                else:
+                    self.project_io_call(lambda: save_project(path,self.geometry,areas,state))
+                if lightweight:
+                    self.statusBar().showMessage('Lightweight copy saved without sample arrays: '+str(path))
+                else:
+                    self.project_path=Path(path)
+                    self.setWindowTitle('Jorvik — '+self.project_path.name)
+                    self.statusBar().showMessage('Project saved: '+str(path))
+                    self.mark_project_clean()
+                    self.clear_recovery()
                 result.append(True)
             except (ValueError,TypeError,OSError,KeyError) as error:
                 QMessageBox.warning(self,'Could not save project',str(error))
@@ -237,11 +256,12 @@ class ProjectActions(RecoveryActions):
                 self.isolate_geometry_action.setChecked(state['isolate_geometry'])
                 self.isolate_action.setChecked(state['isolate'])
             self.sampling.refresh_preview()
-            self.sampling.summary.setText(f'Restored {len(self.sampling.batches)} generated areas.')
+            self.sampling.summary.setText('Recipes loaded without points. Right-click a dataset → Regenerate saved recipe.'
+                                          if manifest.get('samples_omitted') else f'Restored {len(self.sampling.batches)} generated areas.')
             if state.get('layout'):self.restoreState(QByteArray.fromHex(state['layout'].encode()))
             if state.get('camera'):self.view.set_camera_state(state['camera'])
             self.setWindowTitle('Jorvik — '+self.project_path.name)
-            self.statusBar().showMessage('Project opened: '+str(filename))
+            self.statusBar().showMessage(('Lightweight project opened: ' if manifest.get('samples_omitted') else 'Project opened: ')+str(filename))
             if 'recovery_origin' in state:
                 self.project_path = None  # Recovery always requires an explicit Save As destination.
                 self.recovered_from = Path(filename)

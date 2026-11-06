@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 import time
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QSettings, QPoint
 from PySide6.QtWidgets import QApplication
 from jorvik.graphics import configure_graphics
 from jorvik.theme import configure_theme
@@ -101,6 +101,30 @@ def main():
             menu.popup(window.menuBar().mapToGlobal(window.menuBar().actionGeometry(window.menuBar().actions()[0]).bottomLeft()))
             capture(menu, 'file-menu')
             menu.close()
+            from unittest.mock import patch
+            lightweight_path = Path(directory) / 'annulus-recipes.jorvik'
+            with patch('jorvik.project_ui.QFileDialog.getSaveFileName', return_value=(str(lightweight_path), '')):
+                if not window.save_lightweight_copy(): raise RuntimeError('Could not save lightweight example.')
+            lightweight = MainWindow(QSettings(str(Path(directory) / 'light-settings.ini'), QSettings.Format.IniFormat))
+            lightweight.resize(1440, 940); lightweight.show()
+            try:
+                wait(lambda: lightweight.view.is_ready)
+                lightweight.load_project_file(lightweight_path, raise_errors=True)
+                if lightweight.sampling.batches: raise RuntimeError('Lightweight copy unexpectedly contains points.')
+                lightweight.view.call('orient', 1)
+                capture(lightweight, 'lightweight-project')
+                lightweight.sampled_areas.setCurrentItem(lightweight.sampled_areas.items['inner'])
+                menu = lightweight.area_menu('inner')
+                menu.popup(lightweight.sampled_areas.mapToGlobal(QPoint(80, 80)))
+                capture(menu, 'regenerate-recipe-menu'); menu.close()
+                lightweight.regenerate_area('inner')
+                wait(lambda: lightweight.sampling.process is None)
+                if len(lightweight.sampling.batches) != 1: raise RuntimeError('Saved recipe did not regenerate.')
+                lightweight.sampling_dock.raise_()
+                capture(lightweight, 'lightweight-regenerated')
+            finally:
+                lightweight.confirm_unsaved_changes = lambda: True
+                lightweight.close()
             window.open_parametrisation()
             dialog = window.parametrisation_dialog
             dialog.resize(940, 780)

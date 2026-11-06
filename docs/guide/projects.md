@@ -29,6 +29,50 @@ to write a `.jorvik` archive. **Open project…** (`Ctrl+Shift+O`) restores it;
 Saving/opening is unavailable during import, generation or an active parametrisation
 workspace; close that workspace first to keep transient previews out of projects.
 
+## Save a lightweight copy without points
+
+Choose **File → Save lightweight copy (no samples)…** and select a different
+`.jorvik` filename. This saves the embedded main CAD source, cached geometry,
+boundary regions, sampling recipes, colours, controls and transform/design setup,
+while omitting generated coordinates, entity-tag arrays and normal arrays.
+The current open project and its point clouds stay unchanged. Saving this copy
+does not switch documents, mark your current changes saved, or clear recovery.
+The current project filename cannot be chosen as the lightweight destination.
+
+Open the copy with **File → Open project…**. Its datasets are listed as
+**Not generated (samples omitted)** with their requested point counts. No sampling
+runs when the file opens; cached CAD remains available for inspection.
+
+![Lightweight annulus project opened with CAD visible and two pending sampling recipes, without generated point clouds.](../assets/screenshots/lightweight-project.png)
+
+Right-click a dataset and choose **Regenerate saved recipe** to generate it using
+its recorded target, method, requested count/grid budget, seed, geometry accuracy
+and compute settings. It ignores unrelated current Sampling controls. Recorded
+region snapshots are retained, even if a live region definition was edited later.
+Use **Edit…** instead when you intentionally want to change the recipe first.
+
+![Sampled Areas context menu with Regenerate saved recipe enabled for an omitted dataset.](../assets/screenshots/regenerate-recipe-menu.png)
+
+Regeneration replaces only that entry after success. Cancellation/failure leaves
+the pending recipe or previous samples intact, and Undo/Redo can restore the
+previous state. Recreate the other required datasets before transform previews
+or sweep processing. Their saved definitions remain in the project.
+
+![Lightweight project after regenerating the inner boundary: its 128 points are visible while the interior recipe remains not generated.](../assets/screenshots/lightweight-regenerated.png)
+
+After regeneration, **Save project** saves the generated points into this opened
+copy using the normal format; the original full project remains separate.
+Lightweight copies use the existing populated-project schema **2**, with a
+`samples_omitted: true` marker and explicit not-generated recipes. Geometry-free
+projects remain schema **3**. Normal saves and older project loading are unchanged.
+
+This can reduce file size and avoids converting point buffers during the copy,
+but cached geometry still consumes space. Dataset isolation is cleared because
+there are no point clouds to isolate. A fixed seed does not guarantee identical
+coordinates across changed mesher/library versions. The main `.geo` file is
+embedded; full external Include/Merge dependency bundling remains future work.
+
+
 ## Unsaved changes
 
 Changes to datasets, boundary assignments, sampling settings and parametrisation

@@ -1,5 +1,6 @@
 """Versioned portable project archives, numeric arrays without pickle or CAD execution."""
 import hashlib
+from copy import deepcopy
 import json
 import os
 import tempfile
@@ -17,7 +18,34 @@ PROJECT_EXTENSIONS = (PROJECT_EXTENSION, ".gsproj")
 PROJECT_FILTER = "Jorvik project (*.jorvik *.gsproj)"
 
 
-def save_project(path, geometry, areas, state):
+def without_samples(geometry, areas, state):
+    """Return recipe-only copies without traversing or copying numeric buffers."""
+    from .sampling_recipe import request_from_area
+    result = []
+    for area, status, visible in areas:
+        if status == 'Generating': raise ValueError('Wait for generation to finish before saving.')
+        if not isinstance(status, str) or not (status == 'Generated' or status.startswith('Not generated')):
+            raise ValueError('Invalid sampling status.')
+        recipe = request_from_area(area, geometry)
+        recipe['requested_count'] = recipe['count']
+        if 'colour' in area: recipe['colour'] = deepcopy(area['colour'])
+        result.append((recipe, 'Not generated (samples omitted)' if status == 'Generated' else status, visible))
+    settings = deepcopy(state)
+    settings['isolate'] = False; settings['isolate_geometry'] = False
+    settings['geometry_visibility']['isolatedEntities'] = None
+    settings['geometry_visibility']['isolatedFaces'] = None
+    return result, settings
+
+
+def save_project(path, geometry, areas, state, *, include_samples=True):
+    """Save a project; include_samples=False keeps CAD and recipes, without clouds.
+
+    Input datasets/state remain unchanged. Lightweight copies retain schema 2
+    with explicit Not generated recipes and a samples_omitted marker.
+    """
+    if type(include_samples) is not bool: raise ValueError('include_samples must be a boolean.')
+    if not include_samples and geometry is not None:
+        areas, state = without_samples(geometry, areas, state)
     if geometry is None:
         if areas or state != {}:
             raise ValueError('Empty projects cannot contain datasets or geometry state.')
@@ -57,6 +85,9 @@ def save_project(path, geometry, areas, state):
         dataset=to_xarray(generated);dataset.close()
     manifest={'schema_version':2,'geometry':metadata,'areas':records,'state':state,
               'source_extension':source.suffix.lower()}
+    if not include_samples:
+        manifest['samples_omitted'] = True
+        validate_state(geometry, records, state)
     def write(temporary):
         with zipfile.ZipFile(temporary,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=3) as archive:
             archive.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False,allow_nan=False))
@@ -108,6 +139,12 @@ def load_project(path):
                     or archive.namelist() != ['manifest.json']):
                 raise ValueError('Invalid empty project document.')
             return manifest, None
+        if 'samples_omitted' in manifest and type(manifest['samples_omitted']) is not bool:
+            raise ValueError('Invalid omitted-sample marker.')
+        if manifest.get('samples_omitted') and (any(name.startswith('areas/') for name in archive.namelist())
+                or any(record.get('status') == 'Generated' or type(record.get('has_normals')) is not bool
+                       or record['has_normals'] for record in manifest['areas'])):
+            raise ValueError('A lightweight project must not contain generated sample arrays.')
         extension=manifest['source_extension']
         if extension not in FORMATS:
             raise ValueError('Unsupported geometry format in project.')
@@ -157,6 +194,13 @@ def load_project(path):
                 if area['entity_dimension'] != 3 and not {tuple(e) for e in area['entities']}<=keys:
                     raise ValueError('Region references missing geometry entities.')
                 batches.append(area)
+        if manifest.get('samples_omitted'):
+            from .sampling_recipe import request_from_area
+            for record in manifest['areas']:
+                area = record['area']
+                if any(key in area for key in ('coordinates', 'entity_tags', 'normals', 'normal_planes')):
+                    raise ValueError('A lightweight project must contain recipes only.')
+                request_from_area(area, geometry)
         if batches:
             dataset=to_xarray(batches);dataset.close()
         # UI state is checked independently and rejected before replacing the workspace.

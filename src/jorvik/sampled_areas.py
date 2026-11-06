@@ -13,7 +13,9 @@ def area_details(area, status):
     entities = ', '.join(f"{ENTITY_NAMES[d]} {t}" for d, t in area.get('entities', []))
     if area['target'] == 'interior' and status != 'Generated':
         entities = 'Domain interior'
-    details = [f'Entities: {entities}', f"Points: {area['count']:,}",
+    count = (f"Points: {area['count']:,}" if status == 'Generated' else
+             f"Requested points: {area.get('requested_count', area['count']):,}")
+    details = [f'Entities: {entities}', count,
             f"Method: {METHODS[area['method']]}", f"Seed: {area['seed']}", f'Status: {status}']
     if status == 'Generated' and 'normal_status' in area:
         details.append('Normals: ' + area['normal_status'])
