@@ -2,18 +2,12 @@
 
 # Projects and recovery
 
-Launch directly into a project document:
+Use **File → Save project** (`Ctrl+S`) to save the current workspace, or
+**File → Open project…** (`Ctrl+Shift+O`) to reopen an existing document. To start
+from CAD, choose **File → Open Geometry…**. Invalid files produce an error and
+do not replace the workspace with partially loaded data.
 
-```sh
-jorvik path/to/model.jorvik
-# From a source checkout:
-uv run jorvik path/to/model.jorvik
-```
-
-The positional argument also continues to accept supported geometry files
-(`.geo`, `.step`/`.stp`, `.brep`, `.iges`/`.igs`). Missing, unsupported or corrupt
-launch files produce a clear error on stderr and a nonzero exit status; they are
-never replaced as a side effect of opening.
+![File menu with project opening, saving and sample export actions.](../assets/screenshots/file-menu.png)
 
 New project documents use `.jorvik`. Existing `.gsproj` files remain supported by
 the creation API, command line, Open project dialog and recovery workflow. The
@@ -26,28 +20,6 @@ A `.jorvik` can be empty. File → Save project saves the normal empty workspace
 opening an empty document leaves it ready for geometry import. Import geometry,
 then Save to update that same document without choosing a filename again. The
 import counts as an unsaved edit, including when closing immediately afterward.
-
-Other Python applications can create a document without importing Qt or launching
-the interface:
-
-```python
-from jorvik.project import create_empty_project
-
-project_path = create_empty_project("model.jorvik")
-# Then launch: jorvik model.jorvik
-```
-
-`create_empty_project(path, *, overwrite=False)` returns a `pathlib.Path` and
-accepts `.jorvik` (preferred) or legacy `.gsproj` and requires an existing parent
-directory. It atomically creates a complete archive, raising `FileExistsError` if the destination already
-exists. Pass `overwrite=True` only when replacement is intended. Empty documents
-use project schema **3**, with `geometry: null`, no datasets, no source and empty
-state; they cannot contain geometry references or embedded source data. Their
-loader returns `(manifest, None)`. Populated projects keep schema **2**, and
-existing schema **1/2** projects retain their normal validation. Empty workspace
-view preferences are supplied by the application's settings rather than stored
-in the document.
-
 
 ## Saving and opening
 

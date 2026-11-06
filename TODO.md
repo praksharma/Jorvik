@@ -12,6 +12,9 @@ contains the boundary partitions; Jorvik does not create or edit them.
 
 ## Documentation
 
+- [x] GUI-first onboarding and transform/sweep walkthroughs with real screenshots;
+      keep Python and terminal recipes in the advanced reference.
+
 - [x] Copyable recipes for installation, project hand-off, sampling, labelled exports,
       transforms, parameter designs, verified sweep reads and desktop workflows.
 

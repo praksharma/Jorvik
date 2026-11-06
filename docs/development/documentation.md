@@ -52,9 +52,17 @@ do not edit those generated pages directly. Add new guide headings to the script
 page map so every section remains visible. The check fails on missing, stale or
 unmapped content. Edit `docs/index.md` for the landing page.
 
+Screenshots live in `docs/assets/screenshots`. Their canonical links in this
+GUIDE start with `docs/assets/`; the sync script rewrites them for generated topic
+pages. To refresh the real GUI captures with an isolated annulus session on a
+machine with a desktop display, run `uv run python scripts/capture_docs.py`.
+Review each image for legibility and correct state before committing it.
+
 When documenting a new workflow or public API, include a minimal command or Python
 snippet with its required inputs, output shape/files and relevant failure behaviour.
-Keep examples aligned with the implemented interface, identify snippets that share
+For GUI workflows, lead with actual app screenshots and labelled click-by-click
+steps. Keep Python/command examples in the integration reference. Keep examples
+aligned with the implemented interface, identify snippets that share
 session variables, and run them against a small fixture before publishing. Extend
 **Practical recipes** for end-to-end examples; keep detailed limitations on the
 topic pages. Refresh landing-page feature claims alongside guide updates.

@@ -1,6 +1,8 @@
 # Jorvik
 
-Geometry-aware point sampling for PINNs and scientific machine learning.
+A desktop GUI for geometry-aware point sampling for PINNs and scientific machine learning.
+
+![Jorvik workspace with boundary and interior samples](docs/assets/screenshots/sampled-workspace.png)
 
 **Current status:** import Gmsh `.geo`, STEP, OCC BREP or IGES geometry, inspect it in the offline 3D
 viewport, and select original faces or edges using separate tools. Includes
@@ -12,40 +14,26 @@ regions independently of dataset labels, and save full portable projects.
 
 ## Quick start
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+This development preview launches from a checkout with Python 3.12+ and [uv](https://docs.astral.sh/uv/). Once the window opens, use the GUI for the full workflow.
 
 ```sh
-uv sync
+uv sync --locked
 uv run jorvik
-# Open an existing project document:
-uv run jorvik path/to/model.jorvik
 ```
 
-Open a fixture directly:
-
-```sh
-uv run jorvik examples/geometries/cfdbench/annulus_unstructured.geo
-```
-
-Select existing faces or edges, save boundary regions, generate datasets in
-**Sampling**, then export NetCDF/NPZ or save a full `.jorvik` workspace.
-For graphics compatibility, try `uv run jorvik --software-rendering`.
+In the app, choose **File → Open Geometry…**, select faces or edges, create
+**Boundary regions…**, then **Generate samples** in the Sampling pane. Use
+**File → Save project** to keep an editable `.jorvik` workspace, or **Export
+samples…** to save NetCDF/NPZ arrays.
 
 ## Documentation
 
-Read the [user guide](GUIDE.md), copy the [practical recipes](GUIDE.md#practical-recipes),
-try the [annulus example](examples/sample_annulus.py),
-or preview the searchable Zensical site:
-
-```sh
-uv sync --locked --group docs
-uv run --group docs python scripts/sync_docs.py
-uv run --group docs zensical serve
-```
-
-The site includes setup, geometry, regions, sampling, normals, exports, projects,
-recovery, performance and development instructions. See the
-[documentation workflow](GUIDE.md#documentation-site) for building and updating it.
+Start with the [illustrated GUI guide](https://praksharma.github.io/Jorvik/guide/getting-started/),
+then follow [transforms and sweeps in the GUI](https://praksharma.github.io/Jorvik/guide/transforms-and-sweeps/).
+The [full guide](GUIDE.md) includes the same walkthroughs and screenshots.
+Optional [Python recipes](GUIDE.md#practical-recipes) cover integration and
+training reads. Site preview/build instructions live in the
+[documentation workflow](GUIDE.md#documentation-site).
 
 ## Intended workflow
 

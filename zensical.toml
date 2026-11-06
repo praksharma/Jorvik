@@ -10,7 +10,6 @@ site_dir = "site"
 nav = [
   { "Overview" = "index.md" },
   { "Get started" = "guide/getting-started.md" },
-  { "Practical recipes" = "guide/recipes.md" },
   { "User guide" = [
     { "Workspace and visibility" = "guide/workspace.md" },
     { "Geometry and selection" = "guide/geometry.md" },
@@ -19,14 +18,17 @@ nav = [
     { "Outward normals" = "guide/normals.md" },
     { "Datasets and editing" = "guide/datasets.md" },
     { "Projects and recovery" = "guide/projects.md" },
-    { "Transform previews" = "guide/parametrisation.md" },
+    { "Transforms and sweeps" = "guide/transforms-and-sweeps.md" },
     { "Graphics troubleshooting" = "guide/graphics.md" },
   ] },
-  { "Data reference" = [
+  { "Python and data reference" = [
+    { "Code recipes (advanced)" = "guide/recipes.md" },
+    { "Transform schema and behaviour" = "guide/parametrisation.md" },
     { "NetCDF, NPZ and xarray" = "reference/exports.md" },
     { "Attribution and licences" = "reference/attribution.md" },
   ] },
   { "Development" = [
+    { "Installation and launch" = "development/installation.md" },
     { "Architecture and scope" = "development/architecture.md" },
     { "Testing" = "development/testing.md" },
     { "Performance" = "development/performance.md" },

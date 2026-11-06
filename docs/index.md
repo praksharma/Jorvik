@@ -1,6 +1,7 @@
-# Geometry to training data
+# Jorvik desktop application
 
-Jorvik turns prepared CAD into reproducible, labelled point datasets for
+Open CAD, name boundaries and generate points in an interactive desktop workspace.
+Jorvik turns prepared geometry into reproducible, labelled datasets for
 PINNs and scientific machine learning. Keep the relationship between each point
 and its original face, edge or interior region, then bring the data into your own
 training code.
@@ -8,8 +9,12 @@ training code.
 **Development preview · 0.1.0.dev0**
 
 [Start with your first dataset](guide/getting-started.md){ .md-button .md-button--primary }
-[Copy practical recipes](guide/recipes.md){ .md-button }
-[Explore the export schema](reference/exports.md){ .md-button }
+[Preview transforms and export sweeps](guide/transforms-and-sweeps.md){ .md-button }
+
+![Jorvik desktop workspace with annulus boundary and interior samples, dataset trees and Sampling controls.](assets/screenshots/sampled-workspace.png)
+
+Everything shown here is done through the GUI. The guides below show what to
+click, what each screen looks like, and how to save the result.
 
 ## One workflow, from CAD to arrays
 
@@ -26,12 +31,15 @@ physics, prescribed boundary values and solvers belong in downstream tools.
 
 | Task | Read |
 | --- | --- |
-| Copy launch, sampling, transform and sweep examples | [Practical recipes](guide/recipes.md) |
+| Follow the app step by step, with screenshots | [Your first dataset in the GUI](guide/getting-started.md) |
+| Preview transforms, build combinations and export sweeps | [Transforms and sweeps in the GUI](guide/transforms-and-sweeps.md) |
 | Import CAD and select the right entity | [Geometry and selection](guide/geometry.md) |
 | Label several faces or edges together | [Boundary regions](guide/regions.md) |
 | Choose a sampling method and accuracy | [Sampling and accuracy](guide/sampling.md) |
 | Understand outward directions and unavailable normals | [Boundary normals](guide/normals.md) |
 | Save work or recover an interrupted session | [Projects and recovery](guide/projects.md) |
+| Automate integration or copy Python examples | [Code recipes (advanced)](guide/recipes.md) |
+| Install this development preview | [Installation and launch](development/installation.md) |
 | Load training arrays in Python | [NetCDF, NPZ and xarray](reference/exports.md) |
 | Run a complete annulus example | [Release checks and example](development/release.md) |
 | Contribute or verify a change | [Architecture](development/architecture.md) · [Testing](development/testing.md) |

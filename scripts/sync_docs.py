@@ -7,7 +7,9 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = [
     ('guide/recipes.md', 'Practical recipes', ['Practical recipes']),
-    ('guide/getting-started.md', 'Install and create your first dataset', ['Installation and first dataset']),
+    ('guide/getting-started.md', 'Your first dataset in the GUI', ['Your first dataset in the GUI']),
+    ('guide/transforms-and-sweeps.md', 'Transforms and sweeps in the GUI', ['Transforms and sweeps in the GUI']),
+    ('development/installation.md', 'Installing and launching Jorvik', ['Installing and launching Jorvik']),
     ('guide/workspace.md', 'Workspace and visibility', ['Desktop foundation', 'Toolbar and visibility', 'Face and sampled-area context menus']),
     ('guide/geometry.md', 'Geometry import and selection', ['Geometry import and selection', 'Neutral CAD import']),
     ('guide/regions.md', 'Boundary regions', ['User-defined boundary regions']),
@@ -63,6 +65,7 @@ def page_body(text):
             if fence is None: fence = token
             elif token[0] == fence[0] and len(token) >= len(fence): fence = None
         elif fence is None:
+            line = line.replace('](docs/assets/', '](../assets/')
             line = re.sub(r'^(#{4,6}) ', lambda match: '#' * (len(match[1])-2) + ' ', line)
         result.append(line)
     return ''.join(result)

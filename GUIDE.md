@@ -1,113 +1,88 @@
 # Jorvik guide
 
-## Development preview and release checks
+## Your first dataset in the GUI
 
-This remains **0.1.0.dev0**, a development preview. The current release slice
-supports import/selection, user-defined boundary regions, labelled sampling,
-applicable outward normals, NetCDF/NPZ exports, project persistence and explicit
-transform previews. Region labels carry metadata; physics and solvers remain
-outside the application.
+Jorvik is a desktop application. You select geometry, name regions, generate
+points and save or export using the windows and buttons shown below. Commands
+and Python are optional integration/development tools, covered separately.
 
-On 16 October 2026 the built wheel was installed into a separate environment
-using the locked dependencies and validated on macOS arm64 (27.0.1), Python
-3.12.13. The installation check imported from that environment's `site-packages`,
-verified packaged offline assets/licences, rendered samples in the real WebGL
-viewport, and checked CAD topology, boundary/interior sampling, normals,
-NetCDF/NPZ round trips and project restoration. The command-line entry point
-reported `Jorvik 0.1.0.dev0`. This does not establish Windows/Linux support.
+These are screenshots of the real app in its light theme. The example uses
+`annulus_unstructured.geo` from `examples/geometries/cfdbench` in the checkout.
+Once Jorvik is open, the whole workflow below uses the GUI. If you have not
+installed it yet, see **Installing and launching Jorvik**.
 
-To repeat installation validation from a checkout on macOS/Linux:
+#### 1. Open geometry and find your way around
 
-```sh
-uv build
-uv export --locked --no-dev --no-emit-project --no-hashes --output-file /tmp/jorvik-requirements.txt
-uv venv /tmp/jorvik-release-check
-uv pip install --python /tmp/jorvik-release-check/bin/python -r /tmp/jorvik-requirements.txt dist/jorvik-0.1.0.dev0-py3-none-any.whl
-/tmp/jorvik-release-check/bin/python -I scripts/validate_installation.py --installed --render
-/tmp/jorvik-release-check/bin/jorvik --version
-```
+Choose **File → Open Geometry…** and select the annulus file. Choose **Front XY**
+from the camera selector to look straight at the ring. The geometry tree is on
+the left, the interactive viewport in the centre, and **Sampling** on the right.
+The lower-left **Sampled Areas** tree will hold your generated datasets.
 
-`--render` needs a desktop session; omit it for geometry/export checks alone.
-The validator uses temporary files and isolated Qt settings. It does not change
-an existing user's project or settings. Use a fresh environment directory for
-each installation check. The historical macOS check above used Gmsh 4.15.2,
-NumPy 2.5.3, SciPy 1.18.1, xarray 2026.9.0 and PySide6 6.11.2.
+![Jorvik workspace with the annulus loaded, four inner edges selected in the tree and the Sampling pane on the right.](docs/assets/screenshots/workspace.png)
 
-On 29 October 2026, Linux/Wayland compatibility was checked with Python 3.14.8
-and PySide6 6.12.0. All 53 Jorvik tests passed in a separate compatibility
-environment. The built wheel was then installed into an existing application's
-Python 3.14 environment with its existing packages constrained; NumPy 2.5.2,
-PySide6 6.12.0 and the CUDA-enabled Torch installation remained unchanged.
-All 53 tests also passed using the package installed in the shared environment.
-The installed-package validator passed with Gmsh 4.15.2, SciPy 1.18.1 and
-xarray 2026.9.0, including the offline viewport, sampling, normals, NetCDF/NPZ
-round trips and project restoration. Fourteen focused host-application tests
-also passed, including CUDA numerical checks, dataset import, sampling controls
-and model-file lifecycle. The standalone Python 3.12.15 environment passed the
-same geometry/export/rendering validator with PySide6 6.12.0. These are local
-installation checks; Windows and broader distribution coverage remain pending.
+Click **Edges** in the toolbar (or press `E`), then select the four inner arcs.
+Ctrl/Shift-click adds to the selection; the corresponding tree entries highlight.
+You can select the edges in the tree too. The edge numbers in these pictures
+belong to this particular annulus; inspect other models before choosing theirs.
 
-Jorvik still requires Python 3.12 or newer. Its standalone `.python-version`
-remains 3.12; this does not require another application's environment to use
-3.12. Install Jorvik with the receiving environment's interpreter. From a source
-checkout, build the wheel, then target that existing environment explicitly:
+#### 2. Name a boundary region
 
-```sh
-uv build
-uv pip install --python /path/to/host/.venv/bin/python dist/jorvik-0.1.0.dev0-py3-none-any.whl
-uv pip check --python /path/to/host/.venv/bin/python
-```
+Click **Boundary regions…** below the left-hand trees. Enter `inner` as the
+**Region label**, confirm that **Edges** is selected and the four inner arcs are
+checked, then click **Save region** and **Close**.
 
-Jorvik pins PySide6 6.12.0 to share Qt with the receiving application. Include
-Jorvik in that application's dependency declarations if its environment manager
-should retain/reinstall it during future synchronisation. A wheel installation
-is a snapshot; rebuild and reinstall it after making Jorvik changes.
+![Boundary regions dialog with the inner label and four inner edges checked, ready to save.](docs/assets/screenshots/boundary-region.png)
 
-Run the attributed annulus example from a checkout:
+A region groups existing faces or edges under a name. It does not cut the CAD or
+assign a physical boundary-condition value. Dataset labels are separate: they
+name the generated point clouds.
 
-```sh
-uv run python examples/sample_annulus.py --output-dir /tmp/jorvik-annulus --count 128
-```
+#### 3. Generate boundary points
 
-It creates independent `inner`, `outer` and `interior` arrays in `annulus.nc` and
-`annulus.npz`, with outward boundary co-normals and immutable region provenance.
-It reloads both exports, checks matching arrays, and prints the resulting shapes.
-The Python example shows how to obtain separate training coordinates and normal
-arrays for downstream scientific ML. Its face/edge identifiers are specific to
-the included CFDBench annulus; do not reuse them blindly with other CAD.
+In the right-hand **Sampling** pane:
 
-Before a general release, finish broader CAD trim/containment validation,
-small-feature and normal-orientation checks, real exporter compatibility,
-large-project memory reductions/viewport measurements and cross-platform
-installation checks. Unknown units and assembly metadata remain
-explicit limitations. Affine rotation/scaling and sequential parameter sweeps are
-implemented in the current development preview; CAD regeneration and licensed
-translators remain later roadmap work.
+1. Choose **Target → Region: inner**.
+2. Choose **Method → Sobol**.
+3. Set **Points / grid budget** to **128** and **Seed** to **42**.
+4. Enter `inner` as the **Dataset label**, then click **Generate samples**.
 
-## Installation and first dataset
+![Boundary sample result showing 128 points on the inner annulus and the generated inner dataset in Sampled Areas.](docs/assets/screenshots/boundary-samples.png)
 
-Use Python 3.12 or newer and [uv](https://docs.astral.sh/uv/). From a checkout:
+The new `inner` dataset appears under **Sampled Areas**, with its point count,
+method, seed and normal availability. Its checkbox controls visibility. The
+label field advances to the next available name after generation; it does not
+rename the dataset you just created.
 
-```sh
-uv sync --locked
-uv run jorvik examples/geometries/cfdbench/annulus_unstructured.geo
-```
+#### 4. Add interior points and inspect both datasets
 
-1. Select **Edges** (`E`) and click an inner arc. Ctrl/Shift-click adds arcs.
-2. Click **Boundary regions…**, name the selection `inner`, then **Save region**.
-3. In **Sampling**, choose **Region: inner**, **Sobol**, 128 points and a seed.
-4. Click **Generate samples** and inspect the new dataset in **Sampled Areas**.
-5. Choose **Domain interior** to generate a separate interior dataset.
-6. Use **Export samples…** for NetCDF/NPZ, and **Save project** (`Ctrl+S`) to
-   preserve the editable workspace.
+Change **Target** to **Domain interior**, set the count to **512**, enter
+`interior` as the label and click **Generate samples** again. The boundary points
+remain, and a separate cloud fills the annulus without filling its hole.
 
-A boundary region labels CAD entities; a dataset label names one generated point
-cloud. Region edits do not rewrite previously generated dataset provenance.
-Use **Help → Graphics information** to inspect the renderer. For compatibility,
-try `uv run jorvik --software-rendering`.
+![Completed workspace with 128 inner-boundary points and 512 interior points, both visible in the viewport and Sampled Areas.](docs/assets/screenshots/sampled-workspace.png)
 
-The fixture's arc IDs are specific to that geometry. With unfamiliar CAD, inspect
-original faces/edges and confirm domain validity and sampling accuracy first.
+Use the dataset checkboxes to compare clouds, and **Point size** to adjust their
+markers. Left-drag orbits, right-drag pans and scrolling zooms. Right-click a
+dataset for editing, duplication or deletion; **Edit → Undo** restores supported
+edits. Boundary normals are shown as available when their orientation was checked;
+interior samples have no outward boundary normal.
+
+#### 5. Save your workspace or export the points
+
+Choose **File → Save project** (`Ctrl+S`) and save a `.jorvik` document to continue
+editing later. Choose **File → Open project…** to reopen it. Projects preserve
+geometry, regions, generated datasets and workspace settings.
+
+Choose **Export samples…** in the Sampling pane, or **File → Export samples…**,
+to save **NetCDF (.nc)** or **NumPy (.npz)** data for downstream work. All generated
+datasets are exported, including clouds whose preview is hidden.
+
+![Jorvik File menu showing Open Geometry, Open project, Save project, Save project as and Export samples actions.](docs/assets/screenshots/file-menu.png)
+
+Save a project to keep an editable workspace; export samples to use the arrays
+in another tool. Each label keeps its own point count. Neither operation requires
+writing Python or running a terminal command.
+
 
 ## Desktop foundation
 
@@ -216,9 +191,17 @@ do not edit those generated pages directly. Add new guide headings to the script
 page map so every section remains visible. The check fails on missing, stale or
 unmapped content. Edit `docs/index.md` for the landing page.
 
+Screenshots live in `docs/assets/screenshots`. Their canonical links in this
+GUIDE start with `docs/assets/`; the sync script rewrites them for generated topic
+pages. To refresh the real GUI captures with an isolated annulus session on a
+machine with a desktop display, run `uv run python scripts/capture_docs.py`.
+Review each image for legibility and correct state before committing it.
+
 When documenting a new workflow or public API, include a minimal command or Python
 snippet with its required inputs, output shape/files and relevant failure behaviour.
-Keep examples aligned with the implemented interface, identify snippets that share
+For GUI workflows, lead with actual app screenshots and labelled click-by-click
+steps. Keep Python/command examples in the integration reference. Keep examples
+aligned with the implemented interface, identify snippets that share
 session variables, and run them against a small fixture before publishing. Extend
 **Practical recipes** for end-to-end examples; keep detailed limitations on the
 topic pages. Refresh landing-page feature claims alongside guide updates.
@@ -955,18 +938,12 @@ ACIS or proprietary native CAD importer is added.
 
 ### Save and reopen projects
 
-Launch directly into a project document:
+Use **File → Save project** (`Ctrl+S`) to save the current workspace, or
+**File → Open project…** (`Ctrl+Shift+O`) to reopen an existing document. To start
+from CAD, choose **File → Open Geometry…**. Invalid files produce an error and
+do not replace the workspace with partially loaded data.
 
-```sh
-jorvik path/to/model.jorvik
-# From a source checkout:
-uv run jorvik path/to/model.jorvik
-```
-
-The positional argument also continues to accept supported geometry files
-(`.geo`, `.step`/`.stp`, `.brep`, `.iges`/`.igs`). Missing, unsupported or corrupt
-launch files produce a clear error on stderr and a nonzero exit status; they are
-never replaced as a side effect of opening.
+![File menu with project opening, saving and sample export actions.](docs/assets/screenshots/file-menu.png)
 
 New project documents use `.jorvik`. Existing `.gsproj` files remain supported by
 the creation API, command line, Open project dialog and recovery workflow. The
@@ -979,28 +956,6 @@ A `.jorvik` can be empty. File → Save project saves the normal empty workspace
 opening an empty document leaves it ready for geometry import. Import geometry,
 then Save to update that same document without choosing a filename again. The
 import counts as an unsaved edit, including when closing immediately afterward.
-
-Other Python applications can create a document without importing Qt or launching
-the interface:
-
-```python
-from jorvik.project import create_empty_project
-
-project_path = create_empty_project("model.jorvik")
-# Then launch: jorvik model.jorvik
-```
-
-`create_empty_project(path, *, overwrite=False)` returns a `pathlib.Path` and
-accepts `.jorvik` (preferred) or legacy `.gsproj` and requires an existing parent
-directory. It atomically creates a complete archive, raising `FileExistsError` if the destination already
-exists. Pass `overwrite=True` only when replacement is intended. Empty documents
-use project schema **3**, with `geometry: null`, no datasets, no source and empty
-state; they cannot contain geometry references or embedded source data. Their
-loader returns `(manifest, None)`. Populated projects keep schema **2**, and
-existing schema **1/2** projects retain their normal validation. Empty workspace
-view preferences are supplied by the application's settings rather than stored
-in the document.
-
 
 #### Saving and opening
 
@@ -1110,7 +1065,204 @@ existing Rename… and Change colour… actions for display-only changes without
 regeneration. Saving/opening projects while a replacement is running is blocked.
 
 
+## Transforms and sweeps in the GUI
+
+Start with generated datasets in **Sampled Areas**, then click
+**Parametrisation…** below that tree. The tabs guide you through setting values,
+creating combinations, previewing and exporting. This walkthrough continues with
+the annulus's `inner` and `interior` datasets from **Your first dataset in the GUI**.
+
+#### 1. Set a transform
+
+On **Parameters**, keep **Whole domain — consistent transformation** selected.
+Set X **Scale factors** to **1.5** and the **Rotation angle** to **30°**, leaving
+the Z rotation axis and other scale factors unchanged. Translation and pivot
+fields are available in the same tab.
+
+![Parameters tab showing whole-domain scope, a Z rotation axis, 30-degree rotation and X scale factor 1.5.](docs/assets/screenshots/transform-parameters.png)
+
+The order is scale, rotate, then translate. Scale and rotation share the pivot.
+Whole-domain mode transforms the geometry display and all sampled clouds together.
+Selected-region mode moves only checked clouds, with unverified domain consistency.
+Distances retain the CAD source units; no unit conversion is inferred.
+
+#### 2. Preview and restore
+
+Open **Processing** and click **Preview configuration**. The annulus display and
+samples become a rotated ellipse. Editing fields alone does not update the view;
+click Preview again when you want to inspect new values. You can move the dialog
+aside to see the viewport.
+
+![Actual viewport preview of the annulus stretched into a rotated ellipse while the original sampled datasets remain listed.](docs/assets/screenshots/transform-preview.png)
+
+Click **Restore original view** to remove the preview while keeping your values.
+Closing the workspace also clears the preview. **Reset setup** resets both the
+values and display to the original configuration. Transforms use the original
+samples every time; they do not regenerate CAD or resample the domain.
+
+For a single output, use **Export → Process configuration and export…** and
+choose NetCDF or NPZ. The saved file contains transformed points and provenance;
+the original samples remain in the project.
+
+#### 3. Make several configurations
+
+Open **Combinations**, check **Use a parameter design**, and use **Add parameter**
+for each named value. For the six-row example pictured here, choose
+**Cartesian product** and enter:
+
+| Name | Target | Mode | Explicit values |
+| --- | --- | --- | --- |
+| angle | Rotation angle | Values | `0, 30, 60` |
+| shift | Translation X | Values | `0, 1` |
+
+![Combinations tab with a Cartesian product of three angle values and two translation values, and a summary of six configurations.](docs/assets/screenshots/parameter-design.png)
+
+The summary shows **6 configurations × 640 points each = 3,840 points** for this
+example. The original clouds contain 128 boundary points and 512 interior points;
+those counts remain independent in every configuration. The disabled total-random
+count does not control Cartesian products; each parameter's list does.
+
+Click **Generate configurations**, then scroll down to the table. Select a row
+and click **Preview selected configuration** to inspect it. Selection alone does
+not change the viewport. **Export selected configuration…** exports just that row.
+
+![Generated configuration table showing stable IDs, angle and shift values, a search field and selected-row preview/export buttons.](docs/assets/screenshots/configuration-list.png)
+
+Search by configuration ID, parameter name or value to find rows. Searching only
+filters the table; it does not reduce a full sweep export. If you edit a transform
+or design definition, generate the configurations again before using them.
+
+#### 4. Export the whole design
+
+Open **Processing**. Choose **Output format** and the **On error** policy, then
+click **Export generated design…** and choose a new output-folder name.
+This processes every generated configuration in the design.
+
+![Processing tab after a successful sweep, with NetCDF selected, a full progress bar and six outputs written with zero failures.](docs/assets/screenshots/sweep-export.png)
+
+Progress reports attempted, written and failed configurations, plus elapsed time.
+**Cancel export** finishes the current file and stops before the next. Completed
+files remain available. A successful run shows **6/6 attempted · 6 written ·
+0 failed**, as above. Partial and failed runs retain their status and error records;
+resume/retry is not yet available.
+
+Save the project to retain your transform and design definitions. Reopening the
+project restores the definitions; click **Generate configurations** again to
+rebuild the table. For Python consumers, the separate code recipes explain how
+to verify exported files and read one configuration at a time.
+
+
+## Installing and launching Jorvik
+
+Jorvik is a desktop GUI. This development preview is currently installed from a
+source checkout with Python 3.12 or newer and uv. Run this once to install its
+locked dependencies, then launch the app:
+
+```sh
+uv sync --locked
+uv run jorvik
+```
+
+After the window opens, use **File → Open Geometry…** or **Open project…**.
+Normal sampling, region editing, transforms, saving and exporting happen in the
+GUI. You do not need to run a command for each operation. There is no standalone
+installer documented for this preview yet. If Jorvik is already installed in an
+existing environment, launch its installed `jorvik` application.
+
+For rendering compatibility from a checkout, launch with
+`uv run jorvik --software-rendering`. **Help → Graphics information** displays
+the renderer details in the app. Host-environment installation and launching a
+project from another application are covered in the separate code recipes.
+
+
+## Development preview and release checks
+
+This remains **0.1.0.dev0**, a development preview. The current release slice
+supports import/selection, user-defined boundary regions, labelled sampling,
+applicable outward normals, NetCDF/NPZ exports, project persistence and explicit
+transform previews. Region labels carry metadata; physics and solvers remain
+outside the application.
+
+On 16 October 2026 the built wheel was installed into a separate environment
+using the locked dependencies and validated on macOS arm64 (27.0.1), Python
+3.12.13. The installation check imported from that environment's `site-packages`,
+verified packaged offline assets/licences, rendered samples in the real WebGL
+viewport, and checked CAD topology, boundary/interior sampling, normals,
+NetCDF/NPZ round trips and project restoration. The command-line entry point
+reported `Jorvik 0.1.0.dev0`. This does not establish Windows/Linux support.
+
+To repeat installation validation from a checkout on macOS/Linux:
+
+```sh
+uv build
+uv export --locked --no-dev --no-emit-project --no-hashes --output-file /tmp/jorvik-requirements.txt
+uv venv /tmp/jorvik-release-check
+uv pip install --python /tmp/jorvik-release-check/bin/python -r /tmp/jorvik-requirements.txt dist/jorvik-0.1.0.dev0-py3-none-any.whl
+/tmp/jorvik-release-check/bin/python -I scripts/validate_installation.py --installed --render
+/tmp/jorvik-release-check/bin/jorvik --version
+```
+
+`--render` needs a desktop session; omit it for geometry/export checks alone.
+The validator uses temporary files and isolated Qt settings. It does not change
+an existing user's project or settings. Use a fresh environment directory for
+each installation check. The historical macOS check above used Gmsh 4.15.2,
+NumPy 2.5.3, SciPy 1.18.1, xarray 2026.9.0 and PySide6 6.11.2.
+
+On 29 October 2026, Linux/Wayland compatibility was checked with Python 3.14.8
+and PySide6 6.12.0. All 53 Jorvik tests passed in a separate compatibility
+environment. The built wheel was then installed into an existing application's
+Python 3.14 environment with its existing packages constrained; NumPy 2.5.2,
+PySide6 6.12.0 and the CUDA-enabled Torch installation remained unchanged.
+All 53 tests also passed using the package installed in the shared environment.
+The installed-package validator passed with Gmsh 4.15.2, SciPy 1.18.1 and
+xarray 2026.9.0, including the offline viewport, sampling, normals, NetCDF/NPZ
+round trips and project restoration. Fourteen focused host-application tests
+also passed, including CUDA numerical checks, dataset import, sampling controls
+and model-file lifecycle. The standalone Python 3.12.15 environment passed the
+same geometry/export/rendering validator with PySide6 6.12.0. These are local
+installation checks; Windows and broader distribution coverage remain pending.
+
+Jorvik still requires Python 3.12 or newer. Its standalone `.python-version`
+remains 3.12; this does not require another application's environment to use
+3.12. Install Jorvik with the receiving environment's interpreter. From a source
+checkout, build the wheel, then target that existing environment explicitly:
+
+```sh
+uv build
+uv pip install --python /path/to/host/.venv/bin/python dist/jorvik-0.1.0.dev0-py3-none-any.whl
+uv pip check --python /path/to/host/.venv/bin/python
+```
+
+Jorvik pins PySide6 6.12.0 to share Qt with the receiving application. Include
+Jorvik in that application's dependency declarations if its environment manager
+should retain/reinstall it during future synchronisation. A wheel installation
+is a snapshot; rebuild and reinstall it after making Jorvik changes.
+
+Run the attributed annulus example from a checkout:
+
+```sh
+uv run python examples/sample_annulus.py --output-dir /tmp/jorvik-annulus --count 128
+```
+
+It creates independent `inner`, `outer` and `interior` arrays in `annulus.nc` and
+`annulus.npz`, with outward boundary co-normals and immutable region provenance.
+It reloads both exports, checks matching arrays, and prints the resulting shapes.
+The Python example shows how to obtain separate training coordinates and normal
+arrays for downstream scientific ML. Its face/edge identifiers are specific to
+the included CFDBench annulus; do not reuse them blindly with other CAD.
+
+Before a general release, finish broader CAD trim/containment validation,
+small-feature and normal-orientation checks, real exporter compatibility,
+large-project memory reductions/viewport measurements and cross-platform
+installation checks. Unknown units and assembly metadata remain
+explicit limitations. Affine rotation/scaling and sequential parameter sweeps are
+implemented in the current development preview; CAD regeneration and licensed
+translators remain later roadmap work.
+
 ## Practical recipes
+
+These are optional **Python and command examples** for developers and downstream
+data consumers. For normal use, follow the screenshot-based GUI walkthroughs.
 
 These recipes cover installation, project hand-off, sampling, exports, transforms,
 parameter designs and training reads. Python snippets from **Create an empty
@@ -1185,6 +1337,17 @@ For a Python host, use `subprocess.Popen([str(jorvik_executable), str(project)])
 with the installed executable's absolute path. Pass arguments as a list so paths
 with spaces stay intact. There is no dependency on the calling application and
 no live synchronisation between applications.
+
+`create_empty_project(path, *, overwrite=False)` returns a `pathlib.Path` and
+accepts `.jorvik` (preferred) or legacy `.gsproj` and requires an existing parent
+directory. It atomically creates a complete archive, raising `FileExistsError` if the destination already
+exists. Pass `overwrite=True` only when replacement is intended. Empty documents
+use project schema **3**, with `geometry: null`, no datasets, no source and empty
+state; they cannot contain geometry references or embedded source data. Their
+loader returns `(manifest, None)`. Populated projects keep schema **2**, and
+existing schema **1/2** projects retain their normal validation. Empty workspace
+view preferences are supplied by the application's settings rather than stored
+in the document.
 
 #### Generate labelled samples without the GUI
 

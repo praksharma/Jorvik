@@ -2,6 +2,9 @@
 
 # Practical recipes
 
+These are optional **Python and command examples** for developers and downstream
+data consumers. For normal use, follow the screenshot-based GUI walkthroughs.
+
 These recipes cover installation, project hand-off, sampling, exports, transforms,
 parameter designs and training reads. Python snippets from **Create an empty
 project** onward form one worked example: run them in order in a Python session
@@ -75,6 +78,17 @@ For a Python host, use `subprocess.Popen([str(jorvik_executable), str(project)])
 with the installed executable's absolute path. Pass arguments as a list so paths
 with spaces stay intact. There is no dependency on the calling application and
 no live synchronisation between applications.
+
+`create_empty_project(path, *, overwrite=False)` returns a `pathlib.Path` and
+accepts `.jorvik` (preferred) or legacy `.gsproj` and requires an existing parent
+directory. It atomically creates a complete archive, raising `FileExistsError` if the destination already
+exists. Pass `overwrite=True` only when replacement is intended. Empty documents
+use project schema **3**, with `geometry: null`, no datasets, no source and empty
+state; they cannot contain geometry references or embedded source data. Their
+loader returns `(manifest, None)`. Populated projects keep schema **2**, and
+existing schema **1/2** projects retain their normal validation. Empty workspace
+view preferences are supplied by the application's settings rather than stored
+in the document.
 
 ## Generate labelled samples without the GUI
 
