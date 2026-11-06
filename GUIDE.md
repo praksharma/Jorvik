@@ -84,6 +84,21 @@ in another tool. Each label keeps its own point count. Neither operation require
 writing Python or running a terminal command.
 
 
+#### 6. Reuse sampling settings
+
+The Sampling pane's **Save recipe…** button saves the current target and settings
+as a small JSON file. **Load recipe…** restores them for the same geometry. Check
+the target, method, count and seed, then explicitly click **Generate samples**.
+Loading a recipe does not run sampling or replace existing datasets.
+
+![Sampling recipe loaded for 64 inner-boundary points while the existing 128-point inner dataset and 512-point interior dataset remain unchanged.](docs/assets/screenshots/sampling-recipe.png)
+
+In this picture, the loaded recipe asks for **64** boundary points, while
+**Sampled Areas** still shows the existing **128**. This is expected: the recipe
+sets up the next generation. If its label is already in use, Generate creates a
+new numbered label. Use **Edit → Undo/Redo** to undo or restore a recipe load.
+
+
 ## Desktop foundation
 
 Drag with the left mouse button to orbit; right-drag to pan; scroll to zoom.
@@ -311,6 +326,53 @@ and rejection can change its balance properties. Likewise, final samples on an
 irregular domain do not necessarily retain Cartesian LHS or stratification.
 These coverage properties apply to the candidate space. See the
 [SciPy QMC documentation](https://docs.scipy.org/doc/scipy/reference/stats.qmc.html).
+
+### Sampling recipe files
+
+Use **Save recipe…** and **Load recipe…** in the Sampling pane to reuse settings
+without keeping generated point arrays in the recipe. This is separate from
+**Save project**, which preserves the full editable workspace and existing data.
+No Python or command is needed for the recipe workflow.
+
+1. Open geometry and select a target: chosen faces/edges, an imported group, a
+   saved boundary region or **Domain interior**.
+2. Choose the method, point count/grid budget, seed, dataset label, geometry
+   accuracy, compute mode and CPU count.
+3. Click **Save recipe…** and choose a JSON filename, for example
+   `inner.sampling.json`. Saving does not generate points or change the controls.
+4. Later, open the original geometry or saved project and click **Load recipe…**.
+5. Review the restored controls, then click **Generate samples** explicitly.
+
+![Sampling pane with Save recipe and Load recipe controls and restored settings; the viewport retains existing datasets.](docs/assets/screenshots/sampling-recipe.png)
+
+A recipe records the main source hash, format/import settings, original entity
+references and sampling settings. It contains no CAD source, generated coordinates,
+tags or normals. Moving/reopening identical CAD is supported; the recipe binds to
+the newly loaded document. Changed source hashes, import settings or missing
+entities are rejected before any controls or selection change. Hashes cover the
+main file, not the entire external dependency graph of a `.geo` script.
+
+Boundary-region recipes require the same region label and exact membership in
+the current project. Region IDs can change between documents; membership is not
+inferred or remapped. Imported-group recipes likewise require the same dimension
+and member tags. A recipe does not create or edit regions. Reopen the saved
+project when its region definitions are needed.
+
+Successful loading restores controls and, for selection targets, the face/edge
+selection. Existing datasets remain unchanged; Generate uses a new numbered
+label if the recipe's label is already in use. Loading is one undoable edit,
+including its target, controls and selection. Saving a recipe is not an edit.
+A grid recipe retains its original candidate budget, not a previously clipped
+output's actual point count. Identical seeds do not promise identical coordinates
+across changes in mesher/library versions or numerical geometry settings.
+
+Recipes are validated against the current GUI/machine limits. For example, the
+GUI accepts seeds through 2,147,483,647, Standard/Fine accuracy and the available
+CPU range. A valid API recipe outside those limits is rejected atomically rather
+than silently clamped. Reproducible recipes use one CPU thread. Recipe actions
+are disabled during processing or without geometry. Older projects without import
+provenance need their original CAD reopened before creating a recipe.
+
 
 ### Geometry and accuracy
 
@@ -571,7 +633,8 @@ The Edit menu provides **Undo** (`Ctrl+Z`) and **Redo** (`Ctrl+Shift+Z` or
 `Ctrl+Y`). Session history retains the last 30 edits: sampling generation and
 regeneration (including cancelled/failed recipe entries), dataset renaming and
 colour changes, duplication, deletion, clearing datasets, saved boundary-region
-edits, and transform-setup changes when closing the parametrisation workspace.
+edits, sampling-recipe loads (including controls/selection), and transform-setup
+changes when closing the parametrisation workspace.
 Undo restores affected dataset visibility, selection/isolation and parameter
 bindings. New edits after undo discard the redo branch. Saving keeps history;
 undoing back to saved content clears the unsaved-change state.
@@ -1539,6 +1602,36 @@ boundary has planar co-normals; its interior has no outward normal. Metadata
 records unavailable-normal reasons for other geometry. Independent point counts
 stay independent; do not concatenate boundary and interior arrays merely to make
 one rectangular dataset.
+
+#### Save and rebind a sampling recipe in Python
+
+This continues with the last sampling `request`, loaded `geometry` and saved
+`regions` from the earlier annulus example. Include the importer provenance when
+preparing a recipe; it is available on the loaded geometry.
+
+```python
+from jorvik.sampling_recipe import create_recipe, save_recipe, load_recipe, bind_recipe
+
+recipe_request = dict(request, source_format=geometry["source_format"],
+                      import_options=geometry["import_options"])
+recipe = create_recipe(recipe_request)
+save_recipe(recipe, out / "interior.sampling.json")
+restored_request = bind_recipe(load_recipe(out / "interior.sampling.json"), geometry, regions)
+assert restored_request["target"] == "interior"
+assert restored_request["count"] == 64
+# sample_geometry(restored_request) explicitly generates a fresh dataset.
+```
+
+These APIs are Qt-independent. Recipe schema **1** uses
+`kind="jorvik_sampling_recipe"`, `geometry` identity/import metadata and `sampling`
+settings. `create_recipe` extracts settings from a generation request; it does not
+save a generated batch's point arrays. `save_recipe` validates first and writes
+atomically, preserving an existing file if writing fails. `load_recipe` validates
+JSON without executing CAD; `bind_recipe` validates loaded entity/region/group
+references and returns a fresh generation request for the current document.
+The API supports accuracy 16/32/64 and uint32 seeds; the GUI applies its narrower
+workspace limits. Use the Sampling pane's Load recipe action for these JSON files,
+not Open project or Load transform setup.
 
 #### Save a transform and export one configuration
 

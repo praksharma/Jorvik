@@ -163,6 +163,36 @@ records unavailable-normal reasons for other geometry. Independent point counts
 stay independent; do not concatenate boundary and interior arrays merely to make
 one rectangular dataset.
 
+## Save and rebind a sampling recipe in Python
+
+This continues with the last sampling `request`, loaded `geometry` and saved
+`regions` from the earlier annulus example. Include the importer provenance when
+preparing a recipe; it is available on the loaded geometry.
+
+```python
+from jorvik.sampling_recipe import create_recipe, save_recipe, load_recipe, bind_recipe
+
+recipe_request = dict(request, source_format=geometry["source_format"],
+                      import_options=geometry["import_options"])
+recipe = create_recipe(recipe_request)
+save_recipe(recipe, out / "interior.sampling.json")
+restored_request = bind_recipe(load_recipe(out / "interior.sampling.json"), geometry, regions)
+assert restored_request["target"] == "interior"
+assert restored_request["count"] == 64
+# sample_geometry(restored_request) explicitly generates a fresh dataset.
+```
+
+These APIs are Qt-independent. Recipe schema **1** uses
+`kind="jorvik_sampling_recipe"`, `geometry` identity/import metadata and `sampling`
+settings. `create_recipe` extracts settings from a generation request; it does not
+save a generated batch's point arrays. `save_recipe` validates first and writes
+atomically, preserving an existing file if writing fails. `load_recipe` validates
+JSON without executing CAD; `bind_recipe` validates loaded entity/region/group
+references and returns a fresh generation request for the current document.
+The API supports accuracy 16/32/64 and uint32 seeds; the GUI applies its narrower
+workspace limits. Use the Sampling pane's Load recipe action for these JSON files,
+not Open project or Load transform setup.
+
 ## Save a transform and export one configuration
 
 The setup binds to the actual geometry hash, applies scale → rotation → translation

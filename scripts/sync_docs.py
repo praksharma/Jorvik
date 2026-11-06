@@ -13,7 +13,7 @@ PAGES = [
     ('guide/workspace.md', 'Workspace and visibility', ['Desktop foundation', 'Toolbar and visibility', 'Face and sampled-area context menus']),
     ('guide/geometry.md', 'Geometry import and selection', ['Geometry import and selection', 'Neutral CAD import']),
     ('guide/regions.md', 'Boundary regions', ['User-defined boundary regions']),
-    ('guide/sampling.md', 'Sampling and accuracy', ['Sampling', 'Geometry and accuracy', 'Previews and generation lifecycle']),
+    ('guide/sampling.md', 'Sampling and accuracy', ['Sampling', 'Sampling recipe files', 'Geometry and accuracy', 'Previews and generation lifecycle']),
     ('guide/normals.md', 'Boundary normals', ['Boundary normals']),
     ('guide/datasets.md', 'Datasets and editing', ['Sampled Areas tree', 'Edit a sampled area', 'Undo, redo and dataset editing']),
     ('guide/projects.md', 'Projects and recovery', ['Save and reopen projects']),

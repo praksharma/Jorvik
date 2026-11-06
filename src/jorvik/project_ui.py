@@ -15,6 +15,10 @@ class ProjectActions(RecoveryActions):
         return self.sampling.process or self.import_process or self.parametrisation_dialog or self.boundary_dialog or self.saving_project or self.project_io
 
     def refresh_project_actions(self):
+        if hasattr(self, 'sampling'):
+            available = self.sampling.recipe_available()
+            self.sampling.save_recipe_button.setEnabled(available)
+            self.sampling.load_recipe_button.setEnabled(available)
         busy=bool(self.project_busy())
         self.open_project_action.setEnabled(not busy)
         self.save_project_action.setEnabled(not busy)

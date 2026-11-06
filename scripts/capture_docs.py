@@ -83,6 +83,20 @@ def main():
             panel.start(); wait(lambda: panel.process is None)
             if len(panel.batches) != 2: raise RuntimeError('Interior sampling failed.')
             capture(window, 'sampled-workspace')
+            original_controls = panel.recipe_control_state()
+            panel.target.setCurrentIndex(panel.target.findText('Region: inner'))
+            panel.count.setValue(64); panel.label.setText('inner')
+            panel.compute_mode.setCurrentIndex(panel.compute_mode.findData('reproducible'))
+            from jorvik.sampling_recipe import create_recipe, save_recipe, load_recipe
+            recipe_path = Path(directory) / 'inner.sampling.json'
+            save_recipe(create_recipe(panel.build_request()), recipe_path)
+            panel.count.setValue(13); panel.label.setText('temporary')
+            panel.apply_sampling_recipe(load_recipe(recipe_path))
+            if panel.count.value() != 64 or len(panel.batches) != 2:
+                raise RuntimeError('Sampling recipe did not restore controls without generation.')
+            panel.scroll.verticalScrollBar().setValue(0)
+            capture(window, 'sampling-recipe')
+            panel.restore_recipe_controls(original_controls)
             menu = window.menuBar().actions()[0].menu()
             menu.popup(window.menuBar().mapToGlobal(window.menuBar().actionGeometry(window.menuBar().actions()[0]).bottomLeft()))
             capture(menu, 'file-menu')

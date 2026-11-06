@@ -307,8 +307,9 @@ are outside the initial release; use the verified neutral export formats instead
 
 ### CAD dimensional regeneration — later stage
 
-- [ ] Store sampling recipes independently of generated output: entity/region
-      references, target, method, count, seed, accuracy and compute settings.
+- [x] Store sampling recipes independently of generated output: entity/region/group
+      references, target, method, count, seed, accuracy and compute settings;
+      GUI save/load with validation and undo/redo, plus Qt-independent JSON APIs.
 - [ ] Define an explicit CAD parameter source (e.g. supported `.geo` variables or
       a geometry-generation adapter); imported STEP/BREP need not contain editable
       design history or named dimensions.

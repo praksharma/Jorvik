@@ -42,7 +42,8 @@ The Edit menu provides **Undo** (`Ctrl+Z`) and **Redo** (`Ctrl+Shift+Z` or
 `Ctrl+Y`). Session history retains the last 30 edits: sampling generation and
 regeneration (including cancelled/failed recipe entries), dataset renaming and
 colour changes, duplication, deletion, clearing datasets, saved boundary-region
-edits, and transform-setup changes when closing the parametrisation workspace.
+edits, sampling-recipe loads (including controls/selection), and transform-setup
+changes when closing the parametrisation workspace.
 Undo restores affected dataset visibility, selection/isolation and parameter
 bindings. New edits after undo discard the redo branch. Saving keeps history;
 undoing back to saved content clears the unsaved-change state.

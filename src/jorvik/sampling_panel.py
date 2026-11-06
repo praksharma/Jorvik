@@ -7,14 +7,16 @@ from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QComboBox,
     QSpinBox, QLineEdit, QLabel, QPushButton, QHBoxLayout, QCheckBox, QMessageBox, QSlider, QScrollArea, QLayout)
 from .sampling_methods import METHODS
+from .recipe_ui import SamplingRecipeActions
 
 
-class SamplingPanel(QWidget):
+class SamplingPanel(SamplingRecipeActions, QWidget):
     def __init__(self, window):
         super().__init__(window)
         self.window = window
         self.process = None
         self.cancelled = False
+        self._recipe_busy = False
         self.batches = []
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -79,6 +81,12 @@ class SamplingPanel(QWidget):
         self.cancel.setEnabled(False)
         row.addWidget(self.generate);row.addWidget(self.cancel)
         layout.addLayout(row)
+        recipes = QHBoxLayout()
+        self.save_recipe_button = QPushButton('Save recipe…'); self.save_recipe_button.clicked.connect(self.save_sampling_recipe)
+        self.load_recipe_button = QPushButton('Load recipe…'); self.load_recipe_button.clicked.connect(self.load_sampling_recipe)
+        for button in (self.save_recipe_button, self.load_recipe_button):
+            button.setEnabled(False); recipes.addWidget(button)
+        layout.addLayout(recipes)
         self.show_points = QCheckBox('Show sample points')
         self.show_points.setChecked(True)
         self.show_points.toggled.connect(self.refresh_style)
@@ -133,6 +141,7 @@ class SamplingPanel(QWidget):
         self.refresh_targets()
         self.generate.setEnabled(True)
         self.summary.setText('Select a target and generate a dataset.')
+        self.save_recipe_button.setEnabled(True); self.load_recipe_button.setEnabled(True)
 
     def refresh_targets(self):
         current = self.target.currentData()
@@ -151,12 +160,15 @@ class SamplingPanel(QWidget):
         self.target.blockSignals(False)
 
     def set_busy(self, busy):
+        self._recipe_busy = bool(busy)
         for control in (self.target, self.method, self.count, self.seed, self.label, self.resolution, self.compute_mode, self.cpu_threads):
             control.setEnabled(not busy)
         self.update_compute_mode()
         self.clear.setEnabled(not busy)
         self.generate.setEnabled(not busy and self.window.geometry is not None)
         self.cancel.setEnabled(busy)
+        self.save_recipe_button.setEnabled(not busy and self.window.geometry is not None)
+        self.load_recipe_button.setEnabled(not busy and self.window.geometry is not None)
         self.window.open_action.setEnabled(not busy)
         self.export.setEnabled(not busy and bool(self.batches))
         self.window.export_action.setEnabled(not busy and bool(self.batches))
@@ -175,34 +187,26 @@ class SamplingPanel(QWidget):
             number += 1
         return f'{base}_{number}'
 
-    def start(self):
-        if self.process or not self.window.geometry or self.window.import_process or self.window.saving_project or self.window.project_io is not None:
-            return
+    def build_request(self):
+        """Read controls without generating or changing labels/selection."""
+        if self.window.geometry is None: raise ValueError('Open geometry before preparing a sampling recipe.')
         target = self.target.currentData()
         snapshot = None
         if isinstance(target, dict) and 'region_id' in target:
             from .regions import region_snapshot
-            try:
-                snapshot = region_snapshot(self.window.boundary_regions, self.window.geometry, target['region_id'])
-            except ValueError as error:
-                QMessageBox.warning(self, 'Boundary region', str(error))
-                return
+            snapshot = region_snapshot(self.window.boundary_regions, self.window.geometry, target['region_id'])
             entities, kind = snapshot['entities'], 'region'
         elif isinstance(target, dict):
             entities = [[target['dimension'], t] for t in target['tags']]
             kind = 'group'
         else:
-            entities = [list(key) for key in sorted(self.window.selection)]
+            entities = [] if target == 'interior' else [list(key) for key in sorted(self.window.selection)]
             kind = target
         if kind != 'interior' and not entities:
-            QMessageBox.information(self, 'Choose a sampling target', 'Select one or more faces/edges, choose an imported group, or choose Domain interior.')
-            return
+            raise ValueError('Select faces/edges, choose an imported group, or choose Domain interior.')
         label = self.label.text().strip()
         if not label:
-            QMessageBox.information(self, 'Dataset label', 'Give this dataset a label before generating points.')
-            return
-        label = self.next_available_label(label)
-        self.label.setText(label)
+            raise ValueError('Give this dataset a label before generating points.')
         geometry = self.window.geometry
         request = {key: geometry[key] for key in ('source', 'source_hash', 'document')}
         for key in ('source_format', 'import_options'):
@@ -214,6 +218,16 @@ class SamplingPanel(QWidget):
                        cpu_threads=self.cpu_threads.value() if self.compute_mode.currentData()=='multicore' else 1)
         if snapshot is not None:
             request['boundary_region'] = snapshot
+        return request
+
+    def start(self):
+        if self.process or not self.window.geometry or self.window.import_process or self.window.saving_project or self.window.project_io is not None:
+            return
+        try: request = self.build_request()
+        except ValueError as error:
+            QMessageBox.information(self, 'Sampling settings', str(error)); return
+        request['label'] = self.next_available_label(request['label'])
+        self.label.setText(request['label'])
         self.generate_request(request)
 
     def generate_request(self, request, replace_label=None):

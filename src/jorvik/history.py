@@ -62,9 +62,9 @@ class HistoryActions:
             'selected': self.selected_area, 'isolate': self.isolate_action.isChecked(),
             'context': self.isolate_geometry_action.isChecked(), 'label': self.sampling.label.text()})
 
-    def record_edit(self, title, before):
+    def record_edit(self, title, before, after=None):
         if before is None: return
-        after = self.edit_snapshot()
+        if after is None: after = self.edit_snapshot()
         if before == after: return
         del self._history_entries[self._history_index:]
         self._history_entries.append((title, before, after))
@@ -96,6 +96,8 @@ class HistoryActions:
         self.parametrisation_setup = state['setup']
         self.refresh_boundary_regions()
         self.sampling.label.setText(state['label'])
+        if 'recipe_controls' in state:
+            self.sampling.restore_recipe_controls(state['recipe_controls'])
         if state['selected'] in self.sampled_areas.areas:
             self.show_sampled_area(state['selected'])
             self.isolate_geometry_action.setChecked(state['context'])

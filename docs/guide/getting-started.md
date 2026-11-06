@@ -82,3 +82,18 @@ datasets are exported, including clouds whose preview is hidden.
 Save a project to keep an editable workspace; export samples to use the arrays
 in another tool. Each label keeps its own point count. Neither operation requires
 writing Python or running a terminal command.
+
+
+## 6. Reuse sampling settings
+
+The Sampling pane's **Save recipe…** button saves the current target and settings
+as a small JSON file. **Load recipe…** restores them for the same geometry. Check
+the target, method, count and seed, then explicitly click **Generate samples**.
+Loading a recipe does not run sampling or replace existing datasets.
+
+![Sampling recipe loaded for 64 inner-boundary points while the existing 128-point inner dataset and 512-point interior dataset remain unchanged.](../assets/screenshots/sampling-recipe.png)
+
+In this picture, the loaded recipe asks for **64** boundary points, while
+**Sampled Areas** still shows the existing **128**. This is expected: the recipe
+sets up the next generation. If its label is already in use, Generate creates a
+new numbered label. Use **Edit → Undo/Redo** to undo or restore a recipe load.
