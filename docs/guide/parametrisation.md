@@ -154,8 +154,9 @@ The new folder contains:
 `complete_with_errors` means all configurations were attempted but some failed;
 `failed` stops on an error; `cancelled` leaves remaining configurations pending.
 An interrupted process may leave `running`, a missing manifest or an incomplete
-last journal line; none indicates a complete run. Resume/retry is not implemented:
-choose a new folder for another attempt. Each shard and each manifest checkpoint
+last journal line; none indicates a complete run. **Resume/retry saved sweep…**
+verifies a compatible saved run and continues into a new folder, copying verified
+completed outputs and regenerating failed/pending configurations. Each shard and each manifest checkpoint
 is written atomically. Original recipes, region seeds, methods and point counts
 are retained; affine mapping does not regenerate CAD or improve spatial accuracy.
 
@@ -184,7 +185,7 @@ both files and their recorded hashes. Keep run files unchanged while reading.
 Both APIs reject incomplete/error runs by default. Pass `allow_partial=True`
 explicitly to use successful files from cancelled, failed or interrupted runs.
 Only an interrupted `running` journal's malformed final unterminated line can
-be ignored; malformed earlier records remain errors. No resume is performed.
+be ignored; malformed earlier records remain errors. Reading a run does not resume it.
 
 ```python
 from jorvik.sweep_results import iter_sweep_datasets, training_arrays
@@ -215,5 +216,6 @@ uv run python tools/inspect_sweep.py parameter_sweep --allow-partial --verify
 Size estimates concern numeric payloads, not peak Python/Qt memory or compressed
 file size. Memory still scales with the original datasets and one transformed
 configuration. Multiple concurrent workers, within-file cancellation, automatic
-resume/retry, constraints, NetCDF4 grouped output, Jacobian weights and CAD
-regeneration remain later work.
+in-place resume, constraints, NetCDF4 grouped output, Jacobian weights and CAD
+regeneration remain later work. Continuation into a new folder is supported as
+shown in the GUI walkthrough.

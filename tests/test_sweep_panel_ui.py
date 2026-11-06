@@ -138,3 +138,40 @@ class SweepPanelUiTest(unittest.TestCase):
             self.assertIsInstance(panel.last_error,OSError)
             self.assertIn('Cannot create output',panel.status.text())
             self.assertTrue(panel.start_button.isEnabled())
+
+    def test_real_resume_reuses_verified_output_and_preserves_sources(self):
+        from jorvik.sweep_export import export_sweep
+        panel, clouds, base, records = self.panel()
+        originals = deepcopy(clouds)
+        with TemporaryDirectory() as directory:
+            source = Path(directory)/'partial'; stop=[]
+            export_sweep(clouds, base, records, source, file_format='npz', cancelled=lambda:bool(stop),
+                         progress=lambda data:stop.append(True) if data.get('succeeded_count') else None)
+            before={p.name:p.read_bytes() for p in source.iterdir()}
+            self.assertTrue(panel.start_resume(source, Path(directory)/'resumed'))
+            self.assertFalse(panel.resume_button.isEnabled())
+            self.wait_for(lambda:not panel.running)
+            self.assertIsNone(panel.last_error)
+            self.assertEqual(panel.last_result['status'], 'complete')
+            self.assertEqual(panel.last_result['reused_count'], 1)
+            self.assertEqual(panel.file_format.currentData(), 'npz')
+            self.assertIn('1 reused', panel.counts.text())
+            self.assertEqual({p.name:p.read_bytes() for p in source.iterdir()}, before)
+            self.assertEqual(clouds, originals)
+
+    def test_resume_preflight_cancellation_unlocks_without_creating_folder(self):
+        panel, clouds, base, records = self.panel()
+        started=threading.Event()
+        def resume(batches, setup, configurations, source, destination, **options):
+            started.set()
+            while not options['cancelled'](): time.sleep(.005)
+            raise InterruptedError('Resume cancelled before creating output')
+        with TemporaryDirectory() as directory, patch('jorvik.sweep_panel.resume_sweep', side_effect=resume):
+            dest=Path(directory)/'new'
+            self.assertTrue(panel.start_resume(Path(directory)/'previous', dest))
+            self.wait_for(started.is_set); panel.cancel()
+            self.wait_for(lambda:not panel.running)
+            self.assertEqual(panel.last_result['status'], 'cancelled')
+            self.assertIsNone(panel.last_error)
+            self.assertIn('No output folder', panel.status.text())
+            self.assertFalse(dest.exists()); self.assertTrue(panel.resume_button.isEnabled())

@@ -298,7 +298,7 @@ a non-GUI caller, pass a callable such as `cancelled=stop_event.is_set` to
 `export_sweep`; the current file finishes before stopping. `fail_fast=False`
 attempts later configurations after a failure. Completed files remain readable
 with `iter_sweep_datasets(run, allow_partial=True, require_integrity=True)`;
-failed and pending entries are not yielded. Resume/retry is still future work.
+failed and pending entries are not yielded. Use `resume_sweep` explicitly to continue a compatible run into a new folder.
 
 From a checkout, inspect status or verify all completed files:
 
@@ -308,6 +308,33 @@ uv run python tools/inspect_sweep.py recipe-output/sweep --verify --require-inte
 # Explicitly allow successful outputs from a partial run:
 uv run python tools/inspect_sweep.py recipe-output/sweep --allow-partial --verify
 ```
+
+## Continue a compatible sweep in Python
+
+Using the original `batches`, `base` and `configurations` from the examples above:
+
+```python
+from jorvik.sweep_export import resume_sweep
+
+continued = resume_sweep(batches, base, configurations, run, out / "continued-sweep")
+assert continued["status"] == "complete"
+assert continued["reused_count"] == 6  # This example's source run already completed.
+```
+
+For a partial source run, completed files are copied after validation and the
+remaining configurations are regenerated. The destination must be new and
+outside the source. No hard links or in-place modifications are used. The manifest
+records `resumed_from`, `reused_count`, and a versioned `input_fingerprint`; reused
+journal entries include `reused: true`. An input fingerprint covers ordered
+original numeric buffers and their metadata, using SHA-256 and canonical numeric
+storage. The fingerprint is separate from the plan/shard checksums.
+
+Pass `cancelled`/`progress` callbacks and `fail_fast` as for `export_sweep`.
+Preflight progress uses `stage="verifying"`, `verified_count` and
+`verification_total`. Cancellation in preflight raises `InterruptedError` without
+creating output; cancellation after destination creation returns a cancelled run
+manifest. Existing readers remain compatible with older sweeps, but continuation
+requires a fingerprint created by a version that supports this feature.
 
 ## Desktop shortcuts and common tasks
 

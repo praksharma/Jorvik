@@ -79,7 +79,7 @@ Progress reports attempted, written and failed configurations, plus elapsed time
 **Cancel export** finishes the current file and stops before the next. Completed
 files remain available. A successful run shows **6/6 attempted · 6 written ·
 0 failed**, as above. Partial and failed runs retain their status and error records;
-resume/retry is not yet available.
+use **Resume/retry saved sweep…** to continue a compatible run into a new folder.
 
 Save the project to retain your transform and design definitions. Reopening the
 project restores the definitions; click **Generate configurations** again to
@@ -114,3 +114,33 @@ Older sweeps without checksums remain inspectable, with a visible **Legacy run**
 message. Their verification checks structure and provenance only. New sweeps also
 check recorded hashes. Neither kind of verification certifies geometry accuracy
 or validates physics, and the inspector does not modify the current workspace.
+
+
+## 6. Resume or retry a saved sweep
+
+Keep the original sampled datasets and transform/design definition, then click
+**Generate configurations** again if you reopened the project. In **Processing**,
+click **Resume/retry saved sweep…**, select the earlier output folder and choose
+a **new** output-folder name outside the earlier run. The earlier run stays intact.
+
+![Processing tab after continuing a six-configuration sweep, showing six successful outputs with one verified output reused.](../assets/screenshots/sweep-resume.png)
+
+Jorvik checks that original coordinates, tags, normals and dataset metadata match
+the saved input fingerprint. It also compares the base setup and ordered scalar
+plan, and verifies every completed file's checksum and contents before creating
+the new folder. **Reused** counts successful files copied into the new run;
+failed and pending configurations are generated using their original IDs. The
+original NetCDF/NPZ format is retained, and the selected **On error** policy
+applies to this attempt. The inspector shows the source run and reuse count.
+
+A changed sample, recipe, label, colour, transform or design is rejected. Use the
+saved project containing the original data; regenerating samples may produce
+different inputs. Older sweeps without an input fingerprint/checksums cannot be
+continued safely: start a fresh export instead. A corrupt completed file also
+stops preflight with an error; the source is never repaired or overwritten.
+
+**Cancel export** works while verifying or processing. Cancelling verification
+leaves no new output folder. After processing starts, the current atomic copy or
+export finishes, then the run stops and retains its partial records. You can
+continue that new run later into another new folder. Keep the source folder
+unchanged throughout continuation; this does not coordinate with other writers.

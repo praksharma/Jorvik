@@ -16,10 +16,15 @@ def export_sweep(*args, **kwargs):
     return run(*args, **kwargs)
 
 
+def resume_sweep(*args, **kwargs):
+    from .sweep_export import resume_sweep as run
+    return run(*args, **kwargs)
+
+
 class SweepWorker(QThread):
     progressChanged = Signal(dict)
 
-    def __init__(self, batches, base, records, destination, file_format, fail_fast, parent=None):
+    def __init__(self, batches, base, records, destination, file_format, fail_fast, parent=None, resume_from=None):
         super().__init__(parent)
         self.batches = batches
         self.base = base
@@ -27,16 +32,25 @@ class SweepWorker(QThread):
         self.destination = destination
         self.file_format = file_format
         self.fail_fast = fail_fast
+        self.resume_from = resume_from
         self.cancel_event = threading.Event()
         self.result = None
         self.error = None
 
     def run(self):
         try:
-            self.result = export_sweep(
-                self.batches, self.base, self.records, self.destination,
-                file_format=self.file_format, fail_fast=self.fail_fast,
-                cancelled=self.cancel_event.is_set, progress=self.progressChanged.emit)
+            options = dict(fail_fast=self.fail_fast, cancelled=self.cancel_event.is_set,
+                           progress=self.progressChanged.emit)
+            if self.resume_from is None:
+                self.result = export_sweep(self.batches, self.base, self.records, self.destination,
+                                           file_format=self.file_format, **options)
+            else:
+                self.result = resume_sweep(self.batches, self.base, self.records, self.resume_from,
+                                           self.destination, **options)
+        except InterruptedError as error:
+            if self.resume_from is not None and self.cancel_event.is_set() and not Path(self.destination).exists():
+                self.result = {'status': 'cancelled', 'no_output': True}
+            else: self.error = error.with_traceback(None)
         except Exception as error:
             self.error = error.with_traceback(None)
         finally:
@@ -81,6 +95,10 @@ class SweepExportPanel(QWidget):
         self.cancel_button = QPushButton('Cancel export'); self.cancel_button.setObjectName('cancel_sweep_export')
         self.cancel_button.setEnabled(False); self.cancel_button.clicked.connect(self.cancel)
         buttons.addWidget(self.start_button); buttons.addWidget(self.cancel_button)
+        self.resume_button = QPushButton('Resume/retry saved sweep…')
+        self.resume_button.setToolTip('Verify a previous run, copy completed files and retry remaining configurations in a new folder. Keeps the original output format.')
+        self.resume_button.clicked.connect(lambda: self.start_resume())
+        layout.addWidget(self.resume_button)
         layout.addLayout(buttons)
         self.progress = QProgressBar(); self.progress.setObjectName('sweep_progress')
         self.progress.setRange(0, 1); self.progress.setValue(0)
@@ -102,9 +120,17 @@ class SweepExportPanel(QWidget):
         self.file_format.setEnabled(not busy)
         self.error_policy.setEnabled(not busy)
         self.start_button.setEnabled(not busy)
+        self.resume_button.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)
 
-    def start_export(self, destination=None):
+    def start_resume(self, source=None, destination=None):
+        if self.running: return False
+        if source is None:
+            source = QFileDialog.getExistingDirectory(self, 'Choose the saved sweep to resume/retry')
+            if not source: return False
+        return self.start_export(destination, resume_from=Path(source).resolve())
+
+    def start_export(self, destination=None, *, resume_from=None):
         if self.running: return False
         try:
             base, records = self.snapshot()
@@ -125,7 +151,7 @@ class SweepExportPanel(QWidget):
             QMessageBox.warning(self, 'Sweep export', str(error))
             return False
         worker = SweepWorker(batches, base, records, destination,
-                             self.file_format.currentData(), self.error_policy.currentData(), self)
+                             self.file_format.currentData(), self.error_policy.currentData(), self, resume_from=resume_from)
         self._worker = worker
         self._destination = destination
         self.last_result = self.last_error = None
@@ -133,7 +159,7 @@ class SweepExportPanel(QWidget):
         self._started = time.monotonic()
         self.progress.setRange(0, len(records)); self.progress.setValue(0)
         self.counts.setText(f'0/{len(records):,} attempted · 0 written · 0 failed')
-        self.status.setText('Starting export to ' + str(destination))
+        self.status.setText(('Verifying saved run and original samples before resuming to ' if resume_from else 'Starting export to ') + str(destination))
         self._set_controls(True)
         worker.progressChanged.connect(self._progress)
         worker.finished.connect(self._finished)
@@ -149,14 +175,19 @@ class SweepExportPanel(QWidget):
 
     def _progress(self, data):
         if not self.running: return
+        if data.get('format') in ('nc', 'npz'):
+            self.file_format.setCurrentIndex(self.file_format.findData(data['format']))
         total = data.get('configuration_count', self.progress.maximum())
         attempted = data.get('attempted_count', 0)
         succeeded = data.get('succeeded_count', 0); failed = data.get('failed_count', 0)
         self.progress.setRange(0, total); self.progress.setValue(attempted)
-        self.counts.setText(f'{attempted:,}/{total:,} attempted · {succeeded:,} written · {failed:,} failed')
+        self.counts.setText(f'{attempted:,}/{total:,} attempted · {succeeded:,} written · {failed:,} failed'
+                            + (f" · {data['reused_count']:,} reused" if data.get('reused_count') else ''))
         current = data.get('current_id')
         if self._worker.cancel_event.is_set():
             self.status.setText('Cancelling after the current configuration finishes…')
+        elif data.get('stage') == 'verifying':
+            self.status.setText(f"Verifying saved outputs: {data['verified_count']}/{data['verification_total']} checked…")
         elif current:
             self.status.setText('Exporting ' + str(current))
         warnings = data.get('warnings', [])
@@ -201,7 +232,10 @@ class SweepExportPanel(QWidget):
                             'failed': 'Export stopped after a failure', 'cancelled': 'Export cancelled'}
             description = descriptions.get(status, 'Export ended with an unknown status')
             suffix = '' if status == 'complete' else ' Partial outputs and their status records are retained.'
-            self.status.setText(description + ': ' + str(self._destination) + '.' + suffix)
+            if result.get('no_output'):
+                self.status.setText('Resume cancelled during verification. No output folder was created.')
+            else:
+                self.status.setText(description + ': ' + str(self._destination) + '.' + suffix)
         worker.deleteLater()
         self.busyChanged.emit(False)
         self.finishedRun.emit(result or {'status': 'failed', 'error': 'No result returned.'})

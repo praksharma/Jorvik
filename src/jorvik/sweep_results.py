@@ -68,6 +68,7 @@ def inspect_sweep(path, *, allow_partial=False, require_integrity=False):
         raise ValueError('Sweep configuration count differs from its plan.')
     done, failed, seen = set(), set(), set()
     checksums = {}
+    reused = 0
     journal_path = _file(root, manifest['results'])
     text = journal_path.read_text() if journal_path.exists() else ''
     lines = text.splitlines()
@@ -82,6 +83,9 @@ def inspect_sweep(path, *, allow_partial=False, require_integrity=False):
         if identity not in records or identity in seen:
             raise ValueError('Unknown or duplicate configuration result.')
         seen.add(identity)
+        if 'reused' in result and (type(result['reused']) is not bool or
+                                   result['reused'] and result.get('status') != 'complete'):
+            raise ValueError('Invalid reused configuration result.')
         if result.get('status') == 'complete':
             if result.get('filename') != records[identity]['filename']:
                 raise ValueError('Result filename differs from its plan.')
@@ -90,6 +94,7 @@ def inspect_sweep(path, *, allow_partial=False, require_integrity=False):
             if integrity is not None:
                 validate_integrity(result.get('integrity'))
                 checksums[identity] = result['integrity']
+            if result.get('reused'): reused += 1
             done.add(identity)
         elif result.get('status') == 'failed' and 'filename' not in result:
             failed.add(identity)
@@ -100,6 +105,10 @@ def inspect_sweep(path, *, allow_partial=False, require_integrity=False):
         value = manifest.get(key)
         if type(value) is not int or value < 0 or value > len(records) or (status != 'running' and value != expected):
             raise ValueError('Sweep counters differ from its result journal.')
+    if 'reused_count' in manifest:
+        value = manifest['reused_count']
+        if type(value) is not int or not 0 <= value <= len(records) or (status != 'running' and value != reused):
+            raise ValueError('Sweep reused count differs from its result journal.')
     if status == 'complete' and (failed or len(done) != len(records)):
         raise ValueError('Complete sweep has missing or failed outputs.')
     return {'manifest': manifest, 'completed': [record for key, record in records.items() if key in done],

@@ -98,11 +98,13 @@ class SweepInspector(QDialog):
             self.rows = event['rows']; self.summary = event['summary']
             summary = self.summary
             self.overview.setText(f"Run status: {summary['status']} · {summary['completed']} complete · "
-                                  f"{summary['failed']} failed · {summary['pending']} pending")
+                                  f"{summary['failed']} failed · {summary['pending']} pending"
+                                  + (f" · {summary['reused_count']} reused" if summary.get('reused_count') else ''))
             integrity = ('Integrity: SHA-256 checksums recorded.' if summary['integrity']
                          else 'Legacy run: no checksums. Verification checks structure and provenance only.')
             counts = ', '.join(f"{batch['label']}: {batch['count']:,}" for batch in summary['datasets'])
-            self.details.setText(integrity + '\nPoints per configuration: ' + counts)
+            self.details.setText(integrity + '\nPoints per configuration: ' + counts
+                                 + ('\nContinued from: ' + summary['resumed_from'] if summary.get('resumed_from') else ''))
             self.progress.setRange(0, max(1, summary['completed'])); self.progress.setValue(0)
             self.filter_rows()
         elif kind == 'verified':

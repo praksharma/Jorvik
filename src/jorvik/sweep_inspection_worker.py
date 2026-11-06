@@ -22,7 +22,8 @@ def inspect(path, *, verify=False, report=emit):
              'filename': record['filename'] if record['id'] in completed else ''}
             for record in plan]
     summary = {key: manifest[key] for key in ('status', 'source_hash', 'configuration_count')}
-    summary.update(completed=len(completed), failed=len(failed), pending=len(run['pending']),
+    summary.update(reused_count=manifest.get('reused_count', 0), resumed_from=manifest.get('resumed_from'),
+                   completed=len(completed), failed=len(failed), pending=len(run['pending']),
                    integrity=manifest.get('integrity', {}).get('algorithm'),
                    datasets=[{'label': batch['label'], 'count': batch['count']} for batch in manifest['datasets']])
     report({'event': 'metadata', 'summary': summary, 'rows': rows})

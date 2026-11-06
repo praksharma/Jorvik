@@ -294,7 +294,8 @@ are outside the initial release; use the verified neutral export formats instead
 - [x] Progress bar, elapsed time, attempted/written/failed counts and Cancel.
 - [x] Stop-on-error/continue policies, explicit partial-run manifests, atomic shards,
       cooperative cancellation and safe deferred workspace/application closure.
-- [ ] Resume/retry manifests after verifying sources, recipes and completed outputs.
+- [x] Resume/retry into a new folder after verifying original sample/recipe
+      fingerprints, setup/plan and completed outputs; retain source files unchanged.
 - [x] Preserve each region's method, seed, count and geometry-accuracy provenance
       in affine sweep outputs; include hidden/unaffected datasets.
 - [ ] Geometry-aware membership checks against the intended transformed/regenerated

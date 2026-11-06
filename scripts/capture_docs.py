@@ -115,6 +115,18 @@ def main():
             wait(lambda: not dialog.sweep_panel.running)
             if dialog.sweep_panel.last_error: raise RuntimeError(dialog.sweep_panel.last_error)
             capture(dialog, 'sweep-export')
+            from jorvik.sweep_export import export_sweep
+            base, records = dialog.sweep_snapshot()
+            stopped = []
+            previous = Path(directory) / 'interrupted-sweep'
+            export_sweep(tuple(window.sampling.batches), base, records, previous,
+                         cancelled=lambda: bool(stopped),
+                         progress=lambda data: stopped.append(True) if data.get('succeeded_count') else None)
+            dialog.sweep_panel.start_resume(previous, Path(directory) / 'continued-sweep')
+            wait(lambda: not dialog.sweep_panel.running)
+            if dialog.sweep_panel.last_error or dialog.sweep_panel.last_result['reused_count'] != 1:
+                raise RuntimeError('Example sweep did not resume correctly.')
+            capture(dialog, 'sweep-resume')
             dialog.close()
             wait(lambda: window.parametrisation_dialog is None)
             from jorvik.sweep_inspector import SweepInspector

@@ -2,10 +2,14 @@
 
 Only scalar plans are retained across configurations. Point clouds are transformed
 and released by the ordinary exporter one configuration at a time. Existing output
-directories are never reused; partial runs are deliberately not resumable yet.
+directories are never reused; continuation copies verified outputs into a new run.
 """
 from copy import deepcopy
 import json
+import hashlib
+import shutil
+
+import numpy as np
 from pathlib import Path
 import re
 import time
@@ -103,6 +107,80 @@ def _prepare(batches, base_setup, configurations, file_format, fail_fast):
     return plan
 
 
+def input_fingerprint(batches):
+    """Hash ordered original numeric buffers and metadata, one buffer at a time."""
+    digest = hashlib.sha256()
+    for batch in batches:
+        metadata = {key: value for key, value in batch.items()
+                    if key not in ('coordinates', 'entity_tags', 'normals')}
+        encoded = json.dumps(metadata, sort_keys=True, ensure_ascii=False, allow_nan=False).encode('utf-8')
+        digest.update(len(encoded).to_bytes(8, 'little')); digest.update(encoded)
+        for field, dtype in (('coordinates', '<f8'), ('entity_tags', '<i4'), ('normals', '<f8')):
+            digest.update(field.encode('ascii'))
+            if field not in batch:
+                digest.update(b'absent'); continue
+            data = np.asarray(batch[field], dtype=dtype).reshape(-1)
+            digest.update(data.size.to_bytes(8, 'little'))
+            for start in range(0, data.size, 131072):
+                digest.update(data[start:start+131072].tobytes())
+            del data
+    return digest.hexdigest()
+
+
+def resume_sweep(batches, base_setup, configurations, source, destination, *,
+                 fail_fast=True, cancelled=None, progress=None):
+    """Continue a run into a new folder, retaining the source directory unchanged.
+
+    Require matching original data/metadata, base setup and scalar plan, plus
+    checksums and structural validation of every completed source file. Successful
+    files are copied atomically; failed/pending entries are regenerated. Older
+    runs without an input fingerprint cannot be continued safely.
+    Cancellation during preflight raises InterruptedError without creating output.
+    """
+    from .sweep_results import inspect_sweep, iter_sweep_datasets
+    _callbacks(cancelled, progress)
+    source, destination = Path(source).resolve(), Path(destination).resolve()
+    if destination.exists(): raise FileExistsError('Choose a new output folder for the resumed run.')
+    if source in destination.parents:
+        raise ValueError('The new output folder must be outside the source run.')
+    run = inspect_sweep(source, allow_partial=True, require_integrity=True)
+    manifest = run['manifest']
+    plan = _prepare(batches, base_setup, configurations, manifest['format'], fail_fast)
+    fingerprint = input_fingerprint(batches)
+    if manifest.get('input_fingerprint_version') != 1 or manifest.get('input_fingerprint') != fingerprint:
+        raise ValueError('Original samples or metadata differ, or this older run has no input fingerprint. Start a new sweep.')
+    if manifest['base_setup'] != base_setup:
+        raise ValueError('The base setup or parameter design differs from the source run.')
+    old_plan = json.loads((source / manifest['plan']).read_text())['configurations']
+    if old_plan != plan: raise ValueError('The generated configuration plan differs from the source run.')
+    if progress is not None:
+        progress({'stage': 'verifying', 'verified_count': 0, 'verification_total': len(run['completed']),
+                  'configuration_count': len(plan), 'format': manifest['format']})
+    iterator = iter_sweep_datasets(source, allow_partial=True, require_integrity=True)
+    try:
+        for verified, record in enumerate(run['completed'], 1):
+            if cancelled is not None and cancelled():
+                raise InterruptedError('Resume cancelled before creating the output folder.')
+            if next(iterator)['id'] != record['id']:
+                raise ValueError('Completed source configurations differ from the saved plan.')
+            if progress is not None:
+                progress({'stage': 'verifying', 'verified_count': verified, 'verification_total': len(run['completed']),
+                          'configuration_count': len(plan), 'format': manifest['format']})
+    finally:
+        iterator.close()
+    if cancelled is not None and cancelled():
+        raise InterruptedError('Resume cancelled before creating the output folder.')
+    reuse = {record['id']: (source / record['filename'], run['checksums'][record['id']])
+             for record in run['completed']}
+    return _run_sweep(batches, base_setup, plan, destination, manifest['format'], fail_fast,
+                      cancelled, progress, fingerprint, reuse, str(source))
+
+
+def _callbacks(cancelled, progress):
+    if cancelled is not None and not callable(cancelled): raise ValueError('Invalid cancellation callback.')
+    if progress is not None and not callable(progress): raise ValueError('Invalid progress callback.')
+
+
 def export_sweep(batches, base_setup, configurations, destination, *,
                  file_format='nc', fail_fast=True, cancelled=None, progress=None):
     """Export a generated scalar plan to a new directory and return its manifest.
@@ -113,9 +191,14 @@ def export_sweep(batches, base_setup, configurations, destination, *,
     initially, after each attempt, and after final status is written. This API
     never changes the viewport or the borrowed original datasets.
     """
-    if cancelled is not None and not callable(cancelled): raise ValueError('Invalid cancellation callback.')
-    if progress is not None and not callable(progress): raise ValueError('Invalid progress callback.')
+    _callbacks(cancelled, progress)
     plan = _prepare(batches, base_setup, configurations, file_format, fail_fast)
+    return _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
+                      cancelled, progress, input_fingerprint(batches), {}, None)
+
+
+def _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
+               cancelled, progress, fingerprint, reuse, resumed_from):
     started = time.monotonic()
     destination = Path(destination)
     # Exclusive creation protects existing complete and interrupted runs alike.
@@ -128,6 +211,7 @@ def export_sweep(batches, base_setup, configurations, destination, *,
                 'configuration_count': len(plan), 'attempted_count': 0,
                 'succeeded_count': 0, 'failed_count': 0, 'pending_count': len(plan),
                 'all_outputs_complete': False, 'base_setup': deepcopy(base_setup),
+                'input_fingerprint': fingerprint, 'input_fingerprint_version': 1, 'reused_count': 0, 'resumed_from': resumed_from,
                 'source_hash': base_setup['source_hash'], 'datasets': summary,
                 'fail_fast': fail_fast, 'elapsed_seconds': 0.,
                 'plan': 'configurations.json', 'results': 'results.jsonl'}
@@ -160,7 +244,15 @@ def export_sweep(batches, base_setup, configurations, destination, *,
                 result = {'id': current_id, 'status': 'complete',
                           'point_counts': {batch['label']: batch['count'] for batch in batches}}
                 try:
-                    export_configuration(batches, record['setup'], destination / record['filename'])
+                    if current_id in reuse:
+                        original, expected = reuse[current_id]
+                        def copy(temporary):
+                            shutil.copyfile(original, temporary)
+                            from .sweep_integrity import verify_integrity
+                            verify_integrity(temporary, expected)
+                        atomic_write(destination / record['filename'], copy)
+                    else:
+                        export_configuration(batches, record['setup'], destination / record['filename'])
                     result['integrity'] = file_integrity(destination / record['filename'])
                 except Exception as error:
                     result.update(status='failed', error=str(error) or type(error).__name__)
@@ -169,6 +261,9 @@ def export_sweep(batches, base_setup, configurations, destination, *,
                 else:
                     result['filename'] = record['filename']
                     manifest['succeeded_count'] += 1
+                    if current_id in reuse:
+                        result['reused'] = True
+                        manifest['reused_count'] += 1
                 manifest['attempted_count'] += 1
                 journal.write(_json(result) + '\n')
                 journal.flush()

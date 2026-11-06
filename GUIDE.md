@@ -801,8 +801,9 @@ The new folder contains:
 `complete_with_errors` means all configurations were attempted but some failed;
 `failed` stops on an error; `cancelled` leaves remaining configurations pending.
 An interrupted process may leave `running`, a missing manifest or an incomplete
-last journal line; none indicates a complete run. Resume/retry is not implemented:
-choose a new folder for another attempt. Each shard and each manifest checkpoint
+last journal line; none indicates a complete run. **Resume/retry saved sweep…**
+verifies a compatible saved run and continues into a new folder, copying verified
+completed outputs and regenerating failed/pending configurations. Each shard and each manifest checkpoint
 is written atomically. Original recipes, region seeds, methods and point counts
 are retained; affine mapping does not regenerate CAD or improve spatial accuracy.
 
@@ -831,7 +832,7 @@ both files and their recorded hashes. Keep run files unchanged while reading.
 Both APIs reject incomplete/error runs by default. Pass `allow_partial=True`
 explicitly to use successful files from cancelled, failed or interrupted runs.
 Only an interrupted `running` journal's malformed final unterminated line can
-be ignored; malformed earlier records remain errors. No resume is performed.
+be ignored; malformed earlier records remain errors. Reading a run does not resume it.
 
 ```python
 from jorvik.sweep_results import iter_sweep_datasets, training_arrays
@@ -862,8 +863,9 @@ uv run python tools/inspect_sweep.py parameter_sweep --allow-partial --verify
 Size estimates concern numeric payloads, not peak Python/Qt memory or compressed
 file size. Memory still scales with the original datasets and one transformed
 configuration. Multiple concurrent workers, within-file cancellation, automatic
-resume/retry, constraints, NetCDF4 grouped output, Jacobian weights and CAD
-regeneration remain later work.
+in-place resume, constraints, NetCDF4 grouped output, Jacobian weights and CAD
+regeneration remain later work. Continuation into a new folder is supported as
+shown in the GUI walkthrough.
 
 ### Neutral CAD import
 
@@ -1144,7 +1146,7 @@ Progress reports attempted, written and failed configurations, plus elapsed time
 **Cancel export** finishes the current file and stops before the next. Completed
 files remain available. A successful run shows **6/6 attempted · 6 written ·
 0 failed**, as above. Partial and failed runs retain their status and error records;
-resume/retry is not yet available.
+use **Resume/retry saved sweep…** to continue a compatible run into a new folder.
 
 Save the project to retain your transform and design definitions. Reopening the
 project restores the definitions; click **Generate configurations** again to
@@ -1179,6 +1181,36 @@ Older sweeps without checksums remain inspectable, with a visible **Legacy run**
 message. Their verification checks structure and provenance only. New sweeps also
 check recorded hashes. Neither kind of verification certifies geometry accuracy
 or validates physics, and the inspector does not modify the current workspace.
+
+
+#### 6. Resume or retry a saved sweep
+
+Keep the original sampled datasets and transform/design definition, then click
+**Generate configurations** again if you reopened the project. In **Processing**,
+click **Resume/retry saved sweep…**, select the earlier output folder and choose
+a **new** output-folder name outside the earlier run. The earlier run stays intact.
+
+![Processing tab after continuing a six-configuration sweep, showing six successful outputs with one verified output reused.](docs/assets/screenshots/sweep-resume.png)
+
+Jorvik checks that original coordinates, tags, normals and dataset metadata match
+the saved input fingerprint. It also compares the base setup and ordered scalar
+plan, and verifies every completed file's checksum and contents before creating
+the new folder. **Reused** counts successful files copied into the new run;
+failed and pending configurations are generated using their original IDs. The
+original NetCDF/NPZ format is retained, and the selected **On error** policy
+applies to this attempt. The inspector shows the source run and reuse count.
+
+A changed sample, recipe, label, colour, transform or design is rejected. Use the
+saved project containing the original data; regenerating samples may produce
+different inputs. Older sweeps without an input fingerprint/checksums cannot be
+continued safely: start a fresh export instead. A corrupt completed file also
+stops preflight with an error; the source is never repaired or overwritten.
+
+**Cancel export** works while verifying or processing. Cancelling verification
+leaves no new output folder. After processing starts, the current atomic copy or
+export finishes, then the run stops and retains its partial records. You can
+continue that new run later into another new folder. Keep the source folder
+unchanged throughout continuation; this does not coordinate with other writers.
 
 
 ## Installing and launching Jorvik
@@ -1586,7 +1618,7 @@ a non-GUI caller, pass a callable such as `cancelled=stop_event.is_set` to
 `export_sweep`; the current file finishes before stopping. `fail_fast=False`
 attempts later configurations after a failure. Completed files remain readable
 with `iter_sweep_datasets(run, allow_partial=True, require_integrity=True)`;
-failed and pending entries are not yielded. Resume/retry is still future work.
+failed and pending entries are not yielded. Use `resume_sweep` explicitly to continue a compatible run into a new folder.
 
 From a checkout, inspect status or verify all completed files:
 
@@ -1596,6 +1628,33 @@ uv run python tools/inspect_sweep.py recipe-output/sweep --verify --require-inte
 # Explicitly allow successful outputs from a partial run:
 uv run python tools/inspect_sweep.py recipe-output/sweep --allow-partial --verify
 ```
+
+#### Continue a compatible sweep in Python
+
+Using the original `batches`, `base` and `configurations` from the examples above:
+
+```python
+from jorvik.sweep_export import resume_sweep
+
+continued = resume_sweep(batches, base, configurations, run, out / "continued-sweep")
+assert continued["status"] == "complete"
+assert continued["reused_count"] == 6  # This example's source run already completed.
+```
+
+For a partial source run, completed files are copied after validation and the
+remaining configurations are regenerated. The destination must be new and
+outside the source. No hard links or in-place modifications are used. The manifest
+records `resumed_from`, `reused_count`, and a versioned `input_fingerprint`; reused
+journal entries include `reused: true`. An input fingerprint covers ordered
+original numeric buffers and their metadata, using SHA-256 and canonical numeric
+storage. The fingerprint is separate from the plan/shard checksums.
+
+Pass `cancelled`/`progress` callbacks and `fail_fast` as for `export_sweep`.
+Preflight progress uses `stage="verifying"`, `verified_count` and
+`verification_total`. Cancellation in preflight raises `InterruptedError` without
+creating output; cancellation after destination creation returns a cancelled run
+manifest. Existing readers remain compatible with older sweeps, but continuation
+requires a fingerprint created by a version that supports this feature.
 
 #### Desktop shortcuts and common tasks
 
