@@ -336,6 +336,33 @@ creating output; cancellation after destination creation returns a cancelled run
 manifest. Existing readers remain compatible with older sweeps, but continuation
 requires a fingerprint created by a version that supports this feature.
 
+## Apply literal constraints in Python
+
+This uses the Cartesian `base` and `design` from the preceding examples:
+
+```python
+from copy import deepcopy
+from jorvik.parameter_design import generate_design
+
+constrained_design = deepcopy(design)
+constrained_design["constraints"] = [
+    {"name": "limit_angle", "left": "angle", "operator": "<=", "right": {"value": 30.0}}
+]
+constrained_base = dict(base, design=constrained_design)
+report = generate_design(constrained_base, constrained_design)
+assert len(report["accepted"]) == 4
+assert len(report["rejected"]) == 2
+assert report["rejected"][0]["id"] == "configuration_000005"
+export_sweep(batches, constrained_base, report["accepted"], out / "constrained-sweep")
+```
+
+`generate_design` returns `accepted`, `rejected` and `candidate_count`.
+`generate_configurations` remains available and returns only accepted records.
+For parameter comparisons, use `"right": {"parameter": "other_name"}` instead of
+a constant. Read rejected IDs/values/reasons with `inspect_sweep(path)["rejected"]`;
+`iter_sweep_datasets` yields successful accepted outputs only. The full sweep
+example exports all four accepted rows, independently of table search/selection.
+
 ## Desktop shortcuts and common tasks
 
 | Task | Steps | Result |

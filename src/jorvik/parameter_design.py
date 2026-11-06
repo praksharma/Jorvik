@@ -6,6 +6,7 @@ clouds or Cartesian coordinate grids are allocated by this module.
 from copy import deepcopy
 from itertools import product
 import math
+import operator
 
 import numpy as np
 
@@ -19,6 +20,9 @@ TARGETS = {
     'uniform_scale': 'Uniform scale',
 }
 METHODS = ('cartesian', 'paired', 'random', 'lhs', 'sobol')
+COMPARISONS = {'<=': operator.le, '<': operator.lt, '>=': operator.ge, '>': operator.gt,
+               '==': operator.eq, '!=': operator.ne}
+MAX_CONSTRAINTS = 32
 
 
 def _number(value, description):
@@ -85,6 +89,47 @@ def _validate_parameter(parameter, method, base_setup):
     return length
 
 
+def validate_constraints(constraints, units):
+    """Validate literal comparisons; names are dictionary keys, never expressions."""
+    if not isinstance(constraints, list) or len(constraints) > MAX_CONSTRAINTS:
+        raise ValueError(f'Supply at most {MAX_CONSTRAINTS} parameter constraints.')
+    seen = set()
+    for rule in constraints:
+        if not isinstance(rule, dict): raise ValueError('Invalid parameter constraint.')
+        name, left, comparison, right = (rule.get(key) for key in ('name', 'left', 'operator', 'right'))
+        if not isinstance(name, str) or not name.strip() or name in seen:
+            raise ValueError('Constraint names must be non-empty and unique.')
+        seen.add(name)
+        if not isinstance(left, str) or left not in units:
+            raise ValueError(f'{name}: choose an existing left parameter.')
+        if not isinstance(comparison, str) or comparison not in COMPARISONS:
+            raise ValueError(f'{name}: choose a supported comparison.')
+        if not isinstance(right, dict): raise ValueError(f'{name}: choose a constant or parameter.')
+        if set(right) == {'value'}:
+            _number(right['value'], f'{name} constant')
+        elif set(right) == {'parameter'}:
+            other = right['parameter']
+            if not isinstance(other, str) or other not in units:
+                raise ValueError(f'{name}: choose an existing right parameter.')
+            if units[left] != units[other]:
+                raise ValueError(f'{name}: compared parameters must use the same units.')
+        else: raise ValueError(f'{name}: use exactly one constant or parameter.')
+
+
+def constraint_reasons(parameters, constraints):
+    """Return failed rule descriptions for an already-validated definition."""
+    reasons = []
+    for rule in constraints:
+        left = parameters[rule['left']]
+        right = rule['right']
+        value = parameters[right['parameter']] if 'parameter' in right else right['value']
+        if not COMPARISONS[rule['operator']](left, value):
+            target = right['parameter'] if 'parameter' in right else repr(value)
+            reasons.append(f"{rule['name']}: {rule['left']} {rule['operator']} {target} "
+                           f"failed ({left!r} vs {value!r})")
+    return reasons
+
+
 def _validated_size(design, base_setup=None):
     if (not isinstance(design, dict) or type(design.get('schema_version')) is not int
             or design['schema_version'] != DESIGN_VERSION):
@@ -105,6 +150,7 @@ def _validated_size(design, base_setup=None):
         if name in names or target in targets:
             raise ValueError('Parameter names and transform targets must be unique.')
         names.add(name); targets.add(target)
+    validate_constraints(design.get('constraints', []), {p['name']: p['unit'] for p in parameters})
     if 'uniform_scale' in targets and targets & {'scale_x', 'scale_y', 'scale_z'}:
         raise ValueError('Uniform scale cannot overlap individual scale targets.')
     if method == 'cartesian':
@@ -139,6 +185,8 @@ def design_summary(design, batches=None):
         points += size
         bytes_per_configuration += size * (24 + 4 + (24 if 'normals' in batch else 0))
     warnings = ['Size estimates include numeric coordinates, tags and available normals only; metadata and container overhead are excluded.']
+    if design.get('constraints'):
+        warnings.append('Estimates cover all candidates before constraints. Rejected rows are not replaced; filtering changes random/LHS/Sobol coverage.')
     if design['method'] == 'sobol' and count & (count - 1):
         warnings.append('Sobol balance is strongest for power-of-two design sizes; this design truncates a larger balanced sequence.')
     return {'count': count, 'parameter_count': len(design['parameters']),
@@ -164,8 +212,12 @@ def _apply_value(setup, target, value):
         setup['scale'] = [value, value, value]
 
 
-def generate_configurations(base_setup, design):
-    """Generate deterministic IDs and scalar setups; never process spatial clouds."""
+def generate_design(base_setup, design):
+    """Return accepted setups, rejected IDs/values/reasons and candidate_count.
+
+    IDs refer to the original candidate sequence. Filtering never draws replacements
+    or renumbers survivors, and no spatial point arrays are allocated.
+    """
     from .parametrisation import validate_setup
     validate_setup(base_setup)
     if base_setup['schema_version'] != 2:
@@ -195,7 +247,7 @@ def generate_configurations(base_setup, design):
     # before any copies so N configurations never copy N source values each.
     template = deepcopy({key: value for key, value in base_setup.items()
                          if key not in ('design', 'design_configuration')})
-    result = []
+    result, rejected = [], []
     for index, row in enumerate(rows, 1):
         identity = f'configuration_{index:06d}'
         setup = deepcopy(template)
@@ -204,12 +256,23 @@ def generate_configurations(base_setup, design):
             value = float(value)
             values[parameter['name']] = value
             _apply_value(setup, parameter['target'], value)
+        reasons = constraint_reasons(values, design.get('constraints', []))
+        if reasons:
+            rejected.append({'id': identity, 'parameters': values, 'reasons': reasons})
+            continue
         setup['design_configuration'] = {'id': identity, 'method': method, 'seed': design['seed'],
                                          'parameters': values.copy(), 'units': units.copy(),
                                          'bindings': bindings.copy()}
+        if design.get('constraints'):
+            setup['design_configuration']['constraints'] = deepcopy(design['constraints'])
         try:
             validate_setup(setup)
         except (ValueError, TypeError, OverflowError) as error:
             raise ValueError(f'{identity}: invalid transform configuration: {error}') from error
         result.append({'id': identity, 'parameters': values, 'setup': setup})
-    return result
+    return {'accepted': result, 'rejected': rejected, 'candidate_count': count}
+
+
+def generate_configurations(base_setup, design):
+    """Return accepted configurations; use generate_design for rejection reports."""
+    return generate_design(base_setup, design)['accepted']

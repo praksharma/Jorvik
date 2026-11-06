@@ -99,7 +99,8 @@ class SweepInspector(QDialog):
             summary = self.summary
             self.overview.setText(f"Run status: {summary['status']} · {summary['completed']} complete · "
                                   f"{summary['failed']} failed · {summary['pending']} pending"
-                                  + (f" · {summary['reused_count']} reused" if summary.get('reused_count') else ''))
+                                  + (f" · {summary['reused_count']} reused" if summary.get('reused_count') else '')
+                                  + (f" · {summary['constraint_rejected']} rejected by constraints" if summary.get('constraint_rejected') else ''))
             integrity = ('Integrity: SHA-256 checksums recorded.' if summary['integrity']
                          else 'Legacy run: no checksums. Verification checks structure and provenance only.')
             counts = ', '.join(f"{batch['label']}: {batch['count']:,}" for batch in summary['datasets'])
@@ -142,7 +143,8 @@ class SweepInspector(QDialog):
         rows = self._filtered[start:start+PAGE_SIZE]
         self.table.setRowCount(len(rows))
         for index, row in enumerate(rows):
-            verification = self.verification.get(row['id'], 'Not checked' if row['status']=='complete' else '—')
+            verification = ('Excluded: ' + '; '.join(row['reasons']) if row.get('reasons') else
+                            self.verification.get(row['id'], 'Not checked' if row['status']=='complete' else '—'))
             values = [row['id'], row['status'], ', '.join(f'{name}={value}' for name, value in row['parameters'].items()),
                       verification, row['filename']]
             for column, value in enumerate(values):

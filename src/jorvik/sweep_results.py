@@ -50,6 +50,10 @@ def inspect_sweep(path, *, allow_partial=False, require_integrity=False):
     if not isinstance(plan, dict) or plan.get('schema_version') != 1 or not isinstance(plan.get('configurations'), list):
         raise ValueError('Unsupported sweep plan.')
     records = {}
+    from .parameter_design import constraint_reasons, design_summary
+    definition = manifest['base_setup'].get('design', {})
+    rules = definition.get('constraints', [])
+    candidate_limit = design_summary(definition)['count'] if rules else None
     for record in plan['configurations']:
         if not isinstance(record, dict): raise ValueError('Invalid sweep plan record.')
         identity = record['id']
@@ -63,9 +67,51 @@ def inspect_sweep(path, *, allow_partial=False, require_integrity=False):
                 or setup['design_configuration']['id'] != identity
                 or setup['design_configuration']['parameters'] != record['parameters']):
             raise ValueError('Sweep configuration provenance differs from its plan.')
+        if candidate_limit is not None and not 1 <= int(identity[14:]) <= candidate_limit:
+            raise ValueError('Constrained configuration ID lies outside its candidate sequence.')
+        if setup['design_configuration'].get('constraints', []) != rules or constraint_reasons(record['parameters'], rules):
+            raise ValueError('Sweep configuration violates its declared design constraints.')
         records[identity] = record
     if not 1 <= len(records) <= 10000 or manifest.get('configuration_count') != len(records):
         raise ValueError('Sweep configuration count differs from its plan.')
+    rejected = []
+    if manifest['base_setup'].get('design', {}).get('constraints') and 'design_filter' not in manifest:
+        raise ValueError('A constrained sweep is missing its rejection report.')
+    if 'design_filter' in manifest:
+        filtering = manifest['design_filter']
+        if not isinstance(filtering, dict) or filtering.get('report') != 'rejections.json' or filtering.get('replacement') is not False:
+            raise ValueError('Invalid design rejection report.')
+        if integrity is None: raise ValueError('Design rejection reports require checksums.')
+        report_path = _file(root, filtering['report'])
+        verify_integrity(report_path, integrity.get('rejections'))
+        report = json.loads(report_path.read_text())
+        if not isinstance(report, dict) or report.get('schema_version') != 1 or not isinstance(report.get('rejected'), list):
+            raise ValueError('Invalid design rejection report.')
+        rejected = report['rejected']
+        from .parameter_design import validate_design, constraint_reasons, design_summary
+        definition = manifest['base_setup'].get('design')
+        validate_design(definition, manifest['base_setup'])
+        count = design_summary(definition)['count']
+        if (len(rejected) > count or any(type(filtering.get(key)) is not int for key in ('candidate_count', 'accepted_count', 'rejected_count'))
+                or len(records) > filtering.get('accepted_count', -1)
+                or filtering.get('candidate_count') != count or filtering.get('rejected_count') != len(rejected)
+                or filtering.get('accepted_count') != count - len(rejected)):
+            raise ValueError('Design rejection counts differ from their report.')
+        identities = set(records)
+        for record in rejected:
+            if (not isinstance(record, dict) or not isinstance(record.get('id'), str)
+                    or not re.fullmatch(r'configuration_[0-9]{6}', record['id']) or record['id'] in identities
+                    or not 1 <= int(record['id'][14:]) <= count
+                    or not isinstance(record.get('parameters'), dict)):
+                raise ValueError('Invalid or duplicate rejected configuration.')
+            identities.add(record['id'])
+            expected_names = {parameter['name'] for parameter in definition['parameters']}
+            values = record['parameters']
+            if set(values) != expected_names or any(type(value) not in (int, float) or not np.isfinite(value) for value in values.values()):
+                raise ValueError('Invalid rejected configuration values.')
+            reasons = constraint_reasons(values, definition.get('constraints', []))
+            if not reasons or record.get('reasons') != reasons:
+                raise ValueError('Rejected configuration reasons differ from the design constraints.')
     done, failed, seen = set(), set(), set()
     checksums = {}
     reused = 0
@@ -113,7 +159,7 @@ def inspect_sweep(path, *, allow_partial=False, require_integrity=False):
         raise ValueError('Complete sweep has missing or failed outputs.')
     return {'manifest': manifest, 'completed': [record for key, record in records.items() if key in done],
             'failed': [key for key in records if key in failed],
-            'pending': [key for key in records if key not in seen], 'checksums': checksums}
+            'pending': [key for key in records if key not in seen], 'checksums': checksums, 'rejected': rejected}
 
 
 def iter_sweep_datasets(path, *, allow_partial=False, require_integrity=False):

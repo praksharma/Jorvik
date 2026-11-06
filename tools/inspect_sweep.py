@@ -19,6 +19,7 @@ def main():
             verified = sum(1 for _ in iter_sweep_datasets(args.directory, allow_partial=args.allow_partial, require_integrity=args.require_integrity))
         print(json.dumps({'status': result['manifest']['status'],
                           'completed': len(result['completed']), 'failed': result['failed'],
+                          'rejected_by_constraints': len(result['rejected']),
                           'pending': result['pending'], 'verified_files': verified,
                           'integrity': result['manifest'].get('integrity', {}).get('algorithm')}, indent=2))
     except (ValueError, KeyError, TypeError, OSError) as error:

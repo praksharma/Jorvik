@@ -272,10 +272,11 @@ are outside the initial release; use the verified neutral export formats instead
       record design algorithm, seed, bounds and actual parameter values.
 - [x] Show configuration count, points per region/configuration, estimated output
       size and memory needs before starting; avoid allocating huge Cartesian grids.
-- [ ] Implement explicit parameter constraints and model validity checks; report
-      rejected configurations and reasons without silently changing their values.
-- [ ] Record effects of filtering on LHS/Sobol coverage; define rejection/replacement
-      behaviour reproducibly and keep configuration identifiers stable.
+- [x] Literal parameter constraints with GUI editing, visible rejection reasons,
+      stable candidate IDs, same-unit comparisons and no value changes/replacements.
+- [ ] Geometry/model validity checks beyond literal parameter comparisons.
+- [x] Record effects of filtering on LHS/Sobol coverage; retain actual rejected
+      values/reasons and checksum the persisted report.
 - [x] Paginated configuration table/selection and explicit preview/export of one
       chosen configuration without processing the entire sweep.
 - [x] Literal case-insensitive configuration search with stable filtered pagination;
@@ -349,7 +350,8 @@ are outside the initial release; use the verified neutral export formats instead
       require a new output folder and preserve all existing destinations.
 - [x] Persist multiple named parameters, transform bindings, units/reference values
       and versioned design definitions in JSON/projects; retain legacy setup support.
-- [ ] Extend setup JSON with constraints and regeneration recipes.
+- [x] Persist literal constraints in setup JSON/projects and export provenance.
+- [ ] Extend setup JSON with CAD regeneration recipes.
 - [x] Full project persistence for geometry, regions, recipes, generated points and
       translation setup; embed the main CAD source and validate source hashes.
 - [ ] Optional point-cloud omission and full `.geo` dependency bundling/checksums.

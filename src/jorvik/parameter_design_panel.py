@@ -25,6 +25,7 @@ class ParameterDesignPanel(QWidget):
         self.base_setup = base_setup
         self._building = False
         self._records = []
+        self._rejected = []
         self._filtered_indices = []
         self._fingerprint = None
         layout = QVBoxLayout(self)
@@ -66,6 +67,10 @@ class ParameterDesignPanel(QWidget):
         self.remove_button = QPushButton('Remove selected parameter'); self.remove_button.clicked.connect(self.remove_parameter)
         row.addWidget(self.add_button); row.addWidget(self.remove_button); row.addStretch()
         editor_layout.addLayout(row)
+        from .constraint_panel import ConstraintEditor
+        self.constraints = ConstraintEditor(lambda: [self._text(row, 0) for row in range(self.parameters.rowCount())])
+        self.constraints.changed.connect(self._settings_changed)
+        editor_layout.addWidget(self.constraints)
         self.generate_button = QPushButton('Generate configurations')
         self.generate_button.setObjectName('generate_configurations')
         self.generate_button.clicked.connect(self.generate)
@@ -99,6 +104,9 @@ class ParameterDesignPanel(QWidget):
         self.preview_button.clicked.connect(lambda: self.requestPreview.emit())
         self.export_button.clicked.connect(lambda: self.requestExport.emit())
         actions.addWidget(self.preview_button); actions.addWidget(self.export_button)
+        self.rejected_button = QPushButton('Rejected configurations…')
+        self.rejected_button.clicked.connect(self.show_rejected)
+        actions.addWidget(self.rejected_button)
         layout.addLayout(actions)
         self.status = QLabel('Design disabled. Parameters defines one configuration.')
         self.status.setWordWrap(True); self.status.setTextFormat(Qt.TextFormat.PlainText)
@@ -157,8 +165,11 @@ class ParameterDesignPanel(QWidget):
                 pieces = self._text(row, 6).split(',')
                 parameter['values'] = [self._number(piece.strip(), 'Explicit value') for piece in pieces]
             parameters.append(parameter)
-        return {'schema_version': 1, 'method': self.method.currentData(), 'seed': int(self.seed.value()),
-                'count': self.count.value(), 'parameters': parameters}
+        definition = {'schema_version': 1, 'method': self.method.currentData(), 'seed': int(self.seed.value()),
+                      'count': self.count.value(), 'parameters': parameters}
+        rules = self.constraints.rules()
+        if rules: definition['constraints'] = rules
+        return definition
 
     def _append_parameter(self, parameter):
         from .parameter_design import TARGETS
@@ -222,6 +233,7 @@ class ParameterDesignPanel(QWidget):
     def _enabled_state(self):
         active = self.enabled_check.isChecked()
         self.editor.setEnabled(active)
+        self.rejected_button.setEnabled(active and bool(self._rejected))
         stochastic = self.method.currentData() in ('random', 'lhs', 'sobol')
         self.count.setEnabled(active and stochastic)
         self.seed.setEnabled(active and stochastic)
@@ -238,7 +250,8 @@ class ParameterDesignPanel(QWidget):
         self.changed.emit()
 
     def invalidate(self):
-        self._records = []; self._filtered_indices = []; self._fingerprint = None
+        self._records = []; self._rejected = []; self._filtered_indices = []; self._fingerprint = None
+        self.rejected_button.setEnabled(False)
         self.configurations.setRowCount(0)
         self.page_info.setText('No current configuration table.')
         self.search_edit.setEnabled(False)
@@ -256,10 +269,14 @@ class ParameterDesignPanel(QWidget):
             summary = design_summary(design, self.window.sampling.batches)
             regions = ', '.join(f"{record['label']}: {record['points']}" for record in summary['per_region'])
             warnings = '\n'.join(summary.get('warnings', []))
-            self.summary.setText(f"{summary['count']:,} configurations × {summary['points_per_configuration']:,} points each = "
+            outcome = (f"\nGenerated: {len(self._records):,} accepted · {len(self._rejected):,} rejected; "
+                       f"{len(self._records)*summary['points_per_configuration']:,} accepted points."
+                       if design.get('constraints') and self._fingerprint is not None else '')
+            kind = 'candidates before constraints' if design.get('constraints') else 'configurations'
+            self.summary.setText(f"{summary['count']:,} {kind} × {summary['points_per_configuration']:,} points each = "
                                  f"{summary['total_points']:,} points. Estimated numeric output: "
                                  f"{summary['estimated_bytes'] / (1024**2):,.2f} MiB.\n"
-                                 f"Points per region/configuration: {regions or 'No generated samples.'}"
+                                 f"Points per region/configuration: {regions or 'No generated samples.'}" + outcome
                                  + ('\n' + warnings if warnings else ''))
         except (ValueError, TypeError, KeyError) as error:
             self.summary.setText('Design needs attention: ' + str(error))
@@ -284,6 +301,7 @@ class ParameterDesignPanel(QWidget):
             self.seed.setValue(data['seed']); self.count.setValue(data.get('count', 16))
             self.parameters.setRowCount(0)
             for parameter in data['parameters']: self._append_parameter(parameter)
+            self.constraints.apply_rules(data.get('constraints', []))
         finally: self._building = False
         self.invalidate(); self._enabled_state(); self.update_summary(); self.changed.emit()
 
@@ -294,18 +312,27 @@ class ParameterDesignPanel(QWidget):
     def generate(self, *_):
         if not self.enabled_check.isChecked(): return
         try:
-            from .parameter_design import generate_configurations
+            from .parameter_design import generate_design
             base = self.base_setup(); design = self.design()
-            records = generate_configurations(base, design)
+            report = generate_design(base, design)
+            records = report['accepted']
             key = self._key(base, design)
         except (ValueError, TypeError, KeyError) as error:
             QMessageBox.warning(self, 'Parameter design', str(error)); return
-        self._records = records; self._fingerprint = key
+        self._records = records; self._rejected = report['rejected']; self._fingerprint = key
         self._filter_records()
         self.update_summary()
         self.status.setText(f'Generated {len(records):,} configurations. Select one, then preview or export explicitly.'
                             if self._filtered_indices else
                             f'Generated {len(records):,} configurations; none match the search. Clear search to see all.')
+        if design.get('constraints'):
+            self.status.setText(f"{len(records):,} accepted · {len(self._rejected):,} rejected of {report['candidate_count']:,} candidates. View rejections for reasons.")
+
+    def show_rejected(self):
+        from .constraint_panel import RejectedConfigurationsDialog
+        dialog = RejectedConfigurationsDialog(self._rejected, self)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.show()
 
     def _filter_records(self, *_):
         """Search scalar metadata only; preserve the full design and stable IDs."""
@@ -365,6 +392,8 @@ class ParameterDesignPanel(QWidget):
         if not self.enabled_check.isChecked():
             raise ValueError('Enable a parameter design and generate configurations first.')
         design = self.design()
+        if self._fingerprint == self._key(base_setup, design) and not self._records and self._rejected:
+            raise ValueError('All configurations were rejected by constraints. Review the rules before exporting.')
         if not self._records or self._key(base_setup, design) != self._fingerprint:
             raise ValueError('Configurations are stale. Generate configurations again before preview or export.')
         return tuple(self._records)

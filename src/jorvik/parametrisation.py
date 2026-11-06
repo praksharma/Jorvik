@@ -75,9 +75,16 @@ def validate_setup(setup, batches=None):
             except (ValueError, OverflowError):
                 valid = False
             if not valid: raise ValueError('Parameter values must be finite numbers.')
+        from .parameter_design import validate_constraints, constraint_reasons
+        rules = configuration.get('constraints', [])
+        validate_constraints(rules, units)
+        if constraint_reasons(parameters, rules):
+            raise ValueError('Selected configuration violates its parameter constraints.')
         bindings = configuration.get('bindings')
         if 'design' in setup:
             definition = setup['design']
+            if rules != definition.get('constraints', []):
+                raise ValueError('Selected configuration constraints differ from its design.')
             expected = {parameter['name']: parameter['target'] for parameter in definition['parameters']}
             if (configuration['method'] != definition['method'] or configuration['seed'] != definition['seed']
                     or set(parameters) != set(expected)

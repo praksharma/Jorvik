@@ -21,8 +21,11 @@ def inspect(path, *, verify=False, report=emit):
              'status': 'complete' if record['id'] in completed else 'failed' if record['id'] in failed else 'pending',
              'filename': record['filename'] if record['id'] in completed else ''}
             for record in plan]
+    rows += [{'id': record['id'], 'parameters': record['parameters'], 'status': 'rejected',
+              'filename': '', 'reasons': record['reasons']} for record in run['rejected']]
+    rows.sort(key=lambda record: record['id'])
     summary = {key: manifest[key] for key in ('status', 'source_hash', 'configuration_count')}
-    summary.update(reused_count=manifest.get('reused_count', 0), resumed_from=manifest.get('resumed_from'),
+    summary.update(constraint_rejected=len(run['rejected']), reused_count=manifest.get('reused_count', 0), resumed_from=manifest.get('resumed_from'),
                    completed=len(completed), failed=len(failed), pending=len(run['pending']),
                    integrity=manifest.get('integrity', {}).get('algorithm'),
                    datasets=[{'label': batch['label'], 'count': batch['count']} for batch in manifest['datasets']])

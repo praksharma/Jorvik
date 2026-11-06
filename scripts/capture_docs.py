@@ -127,17 +127,37 @@ def main():
             if dialog.sweep_panel.last_error or dialog.sweep_panel.last_result['reused_count'] != 1:
                 raise RuntimeError('Example sweep did not resume correctly.')
             capture(dialog, 'sweep-resume')
+            from copy import deepcopy
+            constrained = deepcopy(design)
+            constrained['constraints'] = [{'name': 'limit_angle', 'left': 'angle', 'operator': '<=',
+                                           'right': {'value': 30.}}]
+            dialog.design_panel.apply_design(constrained)
+            dialog.design_panel.generate()
+            if len(dialog.design_panel._records) != 4 or len(dialog.design_panel._rejected) != 2:
+                raise RuntimeError('Example constraints did not produce the expected report.')
+            dialog.tabs.setCurrentIndex(1)
+            dialog.tabs.currentWidget().ensureWidgetVisible(dialog.design_panel.constraints)
+            capture(dialog, 'parameter-constraints')
+            dialog.design_panel.rejected_button.click()
+            from jorvik.constraint_panel import RejectedConfigurationsDialog
+            rejections = dialog.design_panel.findChild(RejectedConfigurationsDialog)
+            capture(rejections, 'rejected-configurations')
+            rejections.close()
+            dialog.tabs.setCurrentIndex(2)
+            dialog.sweep_panel.start_export(Path(directory) / 'constrained-sweep')
+            wait(lambda: not dialog.sweep_panel.running)
+            if dialog.sweep_panel.last_error: raise RuntimeError(dialog.sweep_panel.last_error)
             dialog.close()
             wait(lambda: window.parametrisation_dialog is None)
             from jorvik.sweep_inspector import SweepInspector
-            inspector = SweepInspector(Path(directory) / 'example-sweep', window)
+            inspector = SweepInspector(Path(directory) / 'constrained-sweep', window)
             window.sweep_inspector = inspector
             inspector.finished.connect(window.finish_sweep_inspection)
             inspector.show()
             wait(lambda: not inspector.running)
             inspector.verify_button.click()
             wait(lambda: not inspector.running)
-            if len(inspector.verification) != 6:
+            if len(inspector.verification) != 4:
                 raise RuntimeError('Example sweep verification did not complete.')
             capture(inspector, 'sweep-inspector')
             inspector.close()

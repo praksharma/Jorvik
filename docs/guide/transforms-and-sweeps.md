@@ -67,18 +67,48 @@ Search by configuration ID, parameter name or value to find rows. Searching only
 filters the table; it does not reduce a full sweep export. If you edit a transform
 or design definition, generate the configurations again before using them.
 
-## 4. Export the whole design
+## 4. Keep only the configurations you want
+
+In **Combinations**, click **Add constraint**. For the six-candidate example
+above, enter rule name `limit_angle`, left parameter `angle`, comparison `<=`,
+right kind **Constant**, and right value **30**. Click **Generate configurations**
+again. Four candidates are accepted and the two 60-degree candidates are rejected.
+The parameter lists and all candidate values stay unchanged.
+
+![Combinations constraint editor with the rule angle less than or equal to 30, and a summary of four accepted and two rejected candidates.](../assets/screenshots/parameter-constraints.png)
+
+Use **Parameter** as the right kind to compare two named parameters, for example
+`shift_x <= shift_y`; enter the exact name in the final column. Both must use the
+same units. Constants use the left parameter's units. Renaming a parameter requires
+updating rules that refer to its old name. Rules are combined with AND: every rule
+must pass. They do not check whether CAD or a physical model is valid.
+
+Click **Rejected configurations…** to see which candidates were excluded and why.
+You can search IDs, named values and reasons. The surviving configurations retain
+their original IDs, so gaps in the accepted table are expected.
+
+![Rejected-configurations window listing candidates 000005 and 000006 with their actual values and failed angle-limit reasons.](../assets/screenshots/rejected-configurations.png)
+
+The summary before generation estimates all candidates, before filtering. The
+status after generation reports actual accepted/rejected counts. If every candidate
+is rejected, review the rules before processing. Random/LHS/Sobol filtering does
+not draw replacements and can change coverage; the result may no longer be
+balanced. Equality is exact; use appropriate inequalities for floating values.
+
+
+## 5. Export the whole design
 
 Open **Processing**. Choose **Output format** and the **On error** policy, then
 click **Export generated design…** and choose a new output-folder name.
-This processes every generated configuration in the design.
+This processes every accepted generated configuration in the design. Rejected
+candidates are recorded in the report but do not create output files.
 
 ![Processing tab after a successful sweep, with NetCDF selected, a full progress bar and six outputs written with zero failures.](../assets/screenshots/sweep-export.png)
 
 Progress reports attempted, written and failed configurations, plus elapsed time.
 **Cancel export** finishes the current file and stops before the next. Completed
-files remain available. A successful run shows **6/6 attempted · 6 written ·
-0 failed**, as above. Partial and failed runs retain their status and error records;
+files remain available. With no constraints, a successful six-row run shows **6/6 attempted · 6 written ·
+0 failed**, as above. The angle constraint example exports only four accepted rows. Partial and failed runs retain their status and error records;
 use **Resume/retry saved sweep…** to continue a compatible run into a new folder.
 
 Save the project to retain your transform and design definitions. Reopening the
@@ -87,7 +117,7 @@ rebuild the table. For Python consumers, the separate code recipes explain how
 to verify exported files and read one configuration at a time.
 
 
-## 5. Inspect and verify exported results
+## 6. Inspect and verify exported results
 
 Choose **File → Inspect exported sweep…** and select the output folder. You can
 inspect a sweep without opening its source project or loading geometry first.
@@ -101,7 +131,7 @@ the files checked. A **Verified** row means its checks passed; a file error is
 shown in that row and in the status message. Verification stops at the first bad
 file, leaving later rows **Not checked**.
 
-![GUI sweep inspector showing a completed six-configuration run, per-region point counts, verified rows and refresh, verify and cancel controls.](../assets/screenshots/sweep-inspector.png)
+![GUI sweep inspector showing a constrained run, per-region point counts, verified accepted rows and rejected candidates and refresh, verify and cancel controls.](../assets/screenshots/sweep-inspector.png)
 
 The inspector also displays cancelled, failed and interrupted runs; successful
 rows can be verified while failed and pending rows remain clearly marked.
@@ -116,7 +146,7 @@ check recorded hashes. Neither kind of verification certifies geometry accuracy
 or validates physics, and the inspector does not modify the current workspace.
 
 
-## 6. Resume or retry a saved sweep
+## 7. Resume or retry a saved sweep
 
 Keep the original sampled datasets and transform/design definition, then click
 **Generate configurations** again if you reopened the project. In **Processing**,

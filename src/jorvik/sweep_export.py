@@ -77,6 +77,8 @@ def _prepare(batches, base_setup, configurations, file_format, fail_fast):
         if scalar['source_hash'] != base_setup['source_hash']:
             raise ValueError('Configuration belongs to a different source geometry.')
         if definition is not None:
+            if provenance.get('constraints', []) != definition.get('constraints', []):
+                raise ValueError('Configuration constraints differ from the base design.')
             if (provenance.get('method') != definition['method'] or provenance.get('seed') != definition['seed']
                     or set(provenance['parameters']) != set(bindings) or provenance.get('units') != units
                     or provenance.get('bindings') != bindings):
@@ -102,6 +104,11 @@ def _prepare(batches, base_setup, configurations, file_format, fail_fast):
             raise ValueError('Configuration plans must not contain point-cloud arrays.')
         plan.append({'id': identity, 'parameters': record['parameters'], 'setup': scalar,
                      'filename': identity + '.' + file_format})
+    if definition.get('constraints'):
+        from .parameter_design import generate_design
+        accepted = {record['id']: record['parameters'] for record in generate_design(base_setup, definition)['accepted']}
+        if any(accepted.get(record['id']) != record['parameters'] for record in plan):
+            raise ValueError('Constrained configuration IDs/values differ from the generated candidate sequence.')
     # Serialization failures also precede destination creation.
     _json(base_setup); _json(plan)
     return plan
@@ -226,13 +233,25 @@ def _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
             # The base design can be large: keep progress events small and never
             # send coordinate arrays or the complete plan through a GUI queue.
             payload = {key: value for key, value in manifest.items()
-                       if key not in ('base_setup', 'datasets')}
+                       if key not in ('base_setup', 'datasets', 'design_filter')}
             progress(dict(payload, current_id=current_id, current_error=current_error))
 
     try:
+        if base_setup['design'].get('constraints'):
+            from .parameter_design import generate_design
+            report = generate_design(base_setup, base_setup['design'])
+            _write_json(destination / 'rejections.json', {'schema_version': 1, 'rejected': report['rejected']})
+            manifest['design_filter'] = {'candidate_count': report['candidate_count'],
+                                         'accepted_count': len(report['accepted']),
+                                         'rejected_count': len(report['rejected']),
+                                         'report': 'rejections.json', 'replacement': False,
+                                         'coverage_note': 'Filtering changes random/LHS/Sobol coverage; no replacement draws.'}
+            del report
         _write_json(destination / manifest['plan'], {'schema_version': SCHEMA_VERSION, 'configurations': plan})
         manifest['integrity'] = {'algorithm': 'sha256',
                                  'plan': file_integrity(destination / manifest['plan'])}
+        if 'design_filter' in manifest:
+            manifest['integrity']['rejections'] = file_integrity(destination / 'rejections.json')
         checkpoint()
         with (destination / manifest['results']).open('x', encoding='utf-8') as journal:
             for record in plan:

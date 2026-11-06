@@ -141,6 +141,10 @@ class ParametrisationDialog(QDialog):
                     if 'values' in parameter:
                         parameter['values'] = [math.degrees(value) for value in parameter['values']]
                     parameter['unit'] = 'degrees'
+            angle_names = {parameter['name'] for parameter in design['parameters'] if parameter['target'] == 'rotation_angle'}
+            for rule in design.get('constraints', []):
+                if rule['left'] in angle_names and 'value' in rule['right']:
+                    rule['right']['value'] = math.degrees(rule['right']['value'])
         self.design_panel.apply_design(design)
         self.restore()
         self.scope.setCurrentIndex(self.scope.findData(setup['scope']))

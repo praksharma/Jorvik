@@ -104,8 +104,9 @@ configuration** or **Export selected configuration**. The Processing/Export tabs
 also use the selected row when the design is enabled. Selection alone never
 changes the viewport. Edits to base transforms or design definitions invalidate
 the table and require explicit regeneration; the old viewport preview stays
-visible until Preview/Restore. Invalid configurations fail generation explicitly
-with their configuration ID; there is no silent filtering or replacement.
+visible until Preview/Restore. Invalid transform configurations fail generation explicitly with their ID.
+Optional named constraints reject candidates with a visible reason report, without
+replacement or renumbering.
 
 Exports still contain **one** selected configuration and every original dataset
 with its independent point count. `_gs_design_parameter`, `_gs_design_values`
@@ -118,6 +119,32 @@ region. Setups/projects retain nested design schema **1** inside transform schem
 the generated table and preview are not saved. Invalid unfinished design drafts
 are discarded on close with a status message, retaining the last valid setup and
 unlocking the workspace.
+
+## Parameter constraints and rejection reports
+
+In Combinations, optional literal rules compare a named parameter to a constant
+or another parameter with the same units. Supported comparisons are `<=`, `<`,
+`>=`, `>`, `==` and `!=`. All rules must pass. Up to 32 uniquely named rules are
+allowed. Constants inherit the left parameter's units; parameter names are literal
+keys, so spaces and Unicode are supported. No expression evaluation is performed.
+Comparisons use exact floating-point values, including equality; no tolerance,
+clamping or automatic value changes are applied.
+
+Generation reports accepted and rejected counts. **Rejected configurations…**
+shows the original IDs, actual named values and every failed rule, with literal
+search and 200 entries per page. Candidate IDs are assigned before filtering:
+accepted rows can have gaps. No replacement draws are made. Filtering can destroy
+LHS strata, Sobol balance and uniform coverage; retained samples are not claimed
+to be a fresh balanced design. Estimates before generation are upper bounds for
+all candidates. An all-rejected design cannot be previewed or exported.
+
+Definitions persist in setup JSON and projects. Selected-file provenance carries
+the rules; sweeps store one checksummed `rejections.json` report plus
+`design_filter` counts and coverage notes in the run manifest. Rejected rows are
+excluded from processing and shown separately from failed/pending files in the
+sweep inspector. Resume/retry requires the same rules and accepted ordered plan.
+These are parameter comparisons, not CAD validity, containment or physics checks.
+
 
 ## Background sweep export
 
@@ -216,6 +243,6 @@ uv run python tools/inspect_sweep.py parameter_sweep --allow-partial --verify
 Size estimates concern numeric payloads, not peak Python/Qt memory or compressed
 file size. Memory still scales with the original datasets and one transformed
 configuration. Multiple concurrent workers, within-file cancellation, automatic
-in-place resume, constraints, NetCDF4 grouped output, Jacobian weights and CAD
+in-place resume, general expression constraints, NetCDF4 grouped output, Jacobian weights and CAD
 regeneration remain later work. Continuation into a new folder is supported as
 shown in the GUI walkthrough.
