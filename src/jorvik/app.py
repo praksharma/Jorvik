@@ -35,6 +35,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.parametrisation_setup = None
         self.boundary_regions = []
         self.boundary_dialog = None
+        self.sweep_inspector = None
         self.import_process = None
         self.selection = set()
         self.selected_area = None
@@ -55,6 +56,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         file_menu.addSeparator()
         self.export_action = file_menu.addAction("&Export samples…", self.export_samples, "Ctrl+Alt+E")
         self.export_action.setEnabled(False)
+        self.inspect_sweep_action = file_menu.addAction('Inspect exported sweep…', self.open_sweep_inspector)
         file_menu.addAction("&Quit", self.close, "Ctrl+Q")
         self.view_menu = self.menuBar().addMenu("&View")
         self.toolbar = QToolBar("Viewport", self)
@@ -192,6 +194,22 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.refresh_project_actions()
         self.initialize_history()
         self.initialize_recovery()
+
+    def open_sweep_inspector(self):
+        if self.sweep_inspector is not None:
+            self.sweep_inspector.show(); self.sweep_inspector.raise_()
+            return
+        path = QFileDialog.getExistingDirectory(self, 'Inspect exported sweep')
+        if not path: return
+        from .sweep_inspector import SweepInspector
+        self.sweep_inspector = SweepInspector(path, self)
+        self.sweep_inspector.finished.connect(self.finish_sweep_inspection)
+        self.sweep_inspector.show()
+
+    def finish_sweep_inspection(self):
+        dialog, self.sweep_inspector = self.sweep_inspector, None
+        if dialog is not None: dialog.deleteLater()
+        QTimer.singleShot(0, self.retry_pending_close)
 
     def open_boundary_regions(self):
         if self.project_busy() or not self.geometry:
@@ -720,6 +738,11 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         if self._handling_close:
             event.ignore()
             return
+        if self.sweep_inspector is not None and self.sweep_inspector.running:
+            self._close_requested = True
+            self.sweep_inspector.reject()
+            event.ignore()
+            return
         if self.parametrisation_dialog is not None and self.parametrisation_dialog.sweep_panel.running:
             self._close_requested = True
             self.parametrisation_dialog.reject()
@@ -738,6 +761,8 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
                 self.boundary_dialog.reject()
             if self.parametrisation_dialog is not None:
                 self.parametrisation_dialog.reject()
+            if self.sweep_inspector is not None:
+                self.sweep_inspector.reject()
             if not self.confirm_unsaved_changes():
                 event.ignore()
                 return

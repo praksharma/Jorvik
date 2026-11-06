@@ -117,6 +117,18 @@ def main():
             capture(dialog, 'sweep-export')
             dialog.close()
             wait(lambda: window.parametrisation_dialog is None)
+            from jorvik.sweep_inspector import SweepInspector
+            inspector = SweepInspector(Path(directory) / 'example-sweep', window)
+            window.sweep_inspector = inspector
+            inspector.finished.connect(window.finish_sweep_inspection)
+            inspector.show()
+            wait(lambda: not inspector.running)
+            inspector.verify_button.click()
+            wait(lambda: not inspector.running)
+            if len(inspector.verification) != 6:
+                raise RuntimeError('Example sweep verification did not complete.')
+            capture(inspector, 'sweep-inspector')
+            inspector.close()
         finally:
             # This is a disposable example session, so never prompt to save it.
             window.confirm_unsaved_changes = lambda *args, **kwargs: True

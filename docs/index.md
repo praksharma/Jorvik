@@ -32,7 +32,7 @@ physics, prescribed boundary values and solvers belong in downstream tools.
 | Task | Read |
 | --- | --- |
 | Follow the app step by step, with screenshots | [Your first dataset in the GUI](guide/getting-started.md) |
-| Preview transforms, build combinations and export sweeps | [Transforms and sweeps in the GUI](guide/transforms-and-sweeps.md) |
+| Preview transforms, export sweeps and verify results in the GUI | [Transforms and sweeps in the GUI](guide/transforms-and-sweeps.md) |
 | Import CAD and select the right entity | [Geometry and selection](guide/geometry.md) |
 | Label several faces or edges together | [Boundary regions](guide/regions.md) |
 | Choose a sampling method and accuracy | [Sampling and accuracy](guide/sampling.md) |

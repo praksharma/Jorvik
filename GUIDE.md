@@ -1152,6 +1152,35 @@ rebuild the table. For Python consumers, the separate code recipes explain how
 to verify exported files and read one configuration at a time.
 
 
+#### 5. Inspect and verify exported results
+
+Choose **File → Inspect exported sweep…** and select the output folder. You can
+inspect a sweep without opening its source project or loading geometry first.
+The window shows run status, complete/failed/pending counts, dataset point counts
+and a searchable configuration table. Pages contain at most 200 rows.
+
+Click **Verify completed files** to check the successful files. Verification runs
+in the background and checks the file contents, shapes, source/setup/parameter
+provenance, and any recorded SHA-256 checksums. Searching filters the table, not
+the files checked. A **Verified** row means its checks passed; a file error is
+shown in that row and in the status message. Verification stops at the first bad
+file, leaving later rows **Not checked**.
+
+![GUI sweep inspector showing a completed six-configuration run, per-region point counts, verified rows and refresh, verify and cancel controls.](docs/assets/screenshots/sweep-inspector.png)
+
+The inspector also displays cancelled, failed and interrupted runs; successful
+rows can be verified while failed and pending rows remain clearly marked.
+**Cancel verification** stops the read-only check without changing any files.
+**Refresh** reads the folder again and clears previous verification results.
+Keep the folder unchanged while inspecting it; the display is a snapshot, not a
+live monitor. Closing the inspector cancels active inspection safely.
+
+Older sweeps without checksums remain inspectable, with a visible **Legacy run**
+message. Their verification checks structure and provenance only. New sweeps also
+check recorded hashes. Neither kind of verification certifies geometry accuracy
+or validates physics, and the inspector does not modify the current workspace.
+
+
 ## Installing and launching Jorvik
 
 Jorvik is a desktop GUI. This development preview is currently installed from a
