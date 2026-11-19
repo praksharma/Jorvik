@@ -83,6 +83,16 @@ def main():
             panel.start(); wait(lambda: panel.process is None)
             if len(panel.batches) != 2: raise RuntimeError('Interior sampling failed.')
             capture(window, 'sampled-workspace')
+            from jorvik.area_editor import AreaEditor
+            area_editor = AreaEditor(window, 'inner')
+            area_editor.method.setCurrentIndex(area_editor.method.findData('lhs'))
+            area_editor.count.setValue(256)
+            area_editor.seed.setValue(99)
+            area_editor.resolution.setCurrentIndex(area_editor.resolution.findData(64))
+            area_editor.show()
+            capture(area_editor, 'area-editor-dialog')
+            area_editor.reject()
+            area_editor.deleteLater()
             original_controls = panel.recipe_control_state()
             panel.target.setCurrentIndex(panel.target.findText('Region: inner'))
             panel.count.setValue(64); panel.label.setText('inner')
@@ -135,6 +145,42 @@ def main():
             dialog.hide()
             capture(window, 'transform-preview')
             dialog.show()
+            dialog.scope.setCurrentIndex(dialog.scope.findData('regions'))
+            for i in range(dialog.regions.count()):
+                item = dialog.regions.item(i)
+                item.setCheckState(
+                    dialog.regions.item(i).checkState().__class__.Checked
+                    if item.text() == 'inner'
+                    else dialog.regions.item(i).checkState().__class__.Unchecked
+                )
+            dialog.offsets[0].setValue(0.35)
+            dialog.preview()
+            dialog.hide()
+            capture(window, 'region-augmentation-preview')
+            dialog.show()
+            dialog.scope.setCurrentIndex(dialog.scope.findData('domain'))
+            dialog.offsets[0].setValue(0.0)
+            dialog.restore()
+            lhs_design = {
+                'schema_version': 1, 'method': 'lhs', 'seed': 42, 'count': 12,
+                'parameters': [
+                    {'name': 'scale_x', 'target': 'scale_x', 'mode': 'range',
+                     'start': 0.8, 'stop': 1.6, 'reference': 1.0, 'unit': 'dimensionless'},
+                    {'name': 'scale_y', 'target': 'scale_y', 'mode': 'range',
+                     'start': 1.0, 'stop': 1.8, 'reference': 1.0, 'unit': 'dimensionless'},
+                    {'name': 'angle', 'target': 'rotation_angle', 'mode': 'range',
+                     'start': -30.0, 'stop': 30.0, 'reference': 0.0, 'unit': 'degrees'},
+                ],
+                'constraints': [
+                    {'name': 'aspect_order', 'left': 'scale_x', 'operator': '<=',
+                     'right': {'parameter': 'scale_y'}},
+                ],
+            }
+            dialog.design_panel.apply_design(lhs_design)
+            dialog.design_panel.generate()
+            dialog.tabs.setCurrentIndex(1)
+            dialog.tabs.currentWidget().verticalScrollBar().setValue(0)
+            capture(dialog, 'lhs-parameter-design')
             design = {'schema_version': 1, 'method': 'cartesian', 'seed': 42, 'count': 6,
                       'parameters': [
                           {'name': 'angle', 'target': 'rotation_angle', 'mode': 'values',
@@ -199,6 +245,128 @@ def main():
                 raise RuntimeError('Example sweep verification did not complete.')
             capture(inspector, 'sweep-inspector')
             inspector.close()
+            wait(lambda: window.sweep_inspector is None)
+
+            # Method comparison on the annulus (Grid vs Sobol)
+            panel.target.setCurrentIndex(panel.target.findData('interior'))
+            panel.method.setCurrentIndex(panel.method.findData('grid'))
+            panel.count.setValue(256)
+            panel.label.setText('grid_interior')
+            panel.start(); wait(lambda: panel.process is None)
+            window.sampled_areas.items['interior'].setCheckState(
+                0, window.sampled_areas.items['interior'].checkState(0).__class__.Unchecked)
+            panel.point_size.setValue(9)
+            window.sampling_dock.raise_()
+            capture(window, 'method-comparison-grid-vs-sobol')
+            panel.point_size.setValue(7)
+
+            # 3D sphere tutorial captures: face selection, face context menu, cutaway interior, isolation, and dark theme
+            window.confirm_unsaved_changes = lambda *args, **kwargs: True
+            window.load_geometry(ROOT / 'examples/geometries/cfdbench/sphere_unstructured.geo')
+            wait(lambda: window.import_process is None)
+            window.view.call('orient', 0)
+            window.set_selection_mode('face')
+            for tag in (1, 2, 3):
+                window.pick_entity(2, tag, tag > 1)
+            window.properties_dock.raise_()
+            capture(window, 'sphere-faces-selected')
+            face_menu = window.face_menu()
+            face_menu.popup(window.tree.mapToGlobal(QPoint(90, 110)))
+            capture(face_menu, 'sphere-face-context-menu')
+            face_menu.close()
+            window.hide_faces([1, 2, 3])
+            window.clear_selection()
+            for tag in (4, 5, 6, 7, 8):
+                window.pick_entity(2, tag, tag > 4)
+            window.sampling_dock.raise_()
+            panel.target.setCurrentIndex(panel.target.findData('selection'))
+            panel.method.setCurrentIndex(panel.method.findData('sobol'))
+            panel.count.setValue(256)
+            panel.label.setText('back_shell')
+            panel.start(); wait(lambda: panel.process is None)
+            window.clear_selection()
+            panel.target.setCurrentIndex(panel.target.findData('interior'))
+            panel.method.setCurrentIndex(panel.method.findData('hammersley'))
+            panel.count.setValue(512)
+            panel.label.setText('volume_interior')
+            panel.start(); wait(lambda: panel.process is None)
+            window.sampling_dock.raise_()
+            capture(window, 'sphere-hidden-faces-interior')
+            window.show_sampled_area('back_shell')
+            window.isolate_geometry_action.setChecked(True)
+            window.isolate_action.setChecked(True)
+            window.sampling_dock.raise_()
+            capture(window, 'region-isolation-context')
+            window.isolate_action.setChecked(False)
+            window.isolate_geometry_action.setChecked(False)
+            window.show_all_faces()
+            window.set_theme('dark')
+            panel.point_size.setValue(8)
+            window.sampling_dock.raise_()
+            capture(window, 'dark-theme-workspace')
+            window.set_theme('light')
+            panel.point_size.setValue(7)
+
+            # 3D Open CASCADE BREP cylinder tutorial capture with verified CAD containment normals
+            window.load_geometry(ROOT / 'examples/geometries/cad/cylinder.brep')
+            wait(lambda: window.import_process is None)
+            window.view.call('orient', 0)
+            window.set_selection_mode('face')
+            window.pick_entity(2, 1, False)
+            window.open_boundary_regions()
+            reg_dialog = window.boundary_dialog
+            reg_dialog.label.setText('curved_wall')
+            reg_dialog.save_region()
+            reg_dialog.close()
+            wait(lambda: window.boundary_dialog is None)
+            window.clear_selection()
+            panel.target.setCurrentIndex(panel.target.findText('Region: curved_wall'))
+            panel.method.setCurrentIndex(panel.method.findData('halton'))
+            panel.count.setValue(192)
+            panel.label.setText('curved_wall')
+            panel.start(); wait(lambda: panel.process is None)
+            panel.target.setCurrentIndex(panel.target.findData('interior'))
+            panel.method.setCurrentIndex(panel.method.findData('stratified'))
+            panel.count.setValue(256)
+            panel.label.setText('cylinder_interior')
+            panel.start(); wait(lambda: panel.process is None)
+            window.show_sampled_area('curved_wall')
+            capture(window, 'brep-cylinder-normals')
+
+            # 3D STEP solid tutorial capture
+            window.load_geometry(ROOT / 'examples/geometries/cad/t20_data.step')
+            wait(lambda: window.import_process is None)
+            window.view.call('orient', 0)
+            window.set_selection_mode('face')
+            window.pick_entity(2, 1, False)
+            window.pick_entity(2, 2, True)
+            panel.target.setCurrentIndex(panel.target.findData('selection'))
+            panel.method.setCurrentIndex(panel.method.findData('lhs'))
+            panel.count.setValue(160)
+            panel.label.setText('step_faces')
+            panel.start(); wait(lambda: panel.process is None)
+            window.clear_selection()
+            panel.target.setCurrentIndex(panel.target.findData('interior'))
+            panel.method.setCurrentIndex(panel.method.findData('sobol'))
+            panel.count.setValue(320)
+            panel.label.setText('step_interior')
+            panel.start(); wait(lambda: panel.process is None)
+            window.sampling_dock.raise_()
+            capture(window, 'step-solid-imported')
+
+            # Open surface STEP shell with degenerate edges and unavailable outward normals
+            window.load_geometry(ROOT / 'examples/geometries/cad/cube_filet.stp')
+            wait(lambda: window.import_process is None)
+            window.view.call('orient', 0)
+            window.set_selection_mode('face')
+            window.pick_entity(2, 1, False)
+            panel.target.setCurrentIndex(panel.target.findData('selection'))
+            panel.method.setCurrentIndex(panel.method.findData('random'))
+            panel.count.setValue(128)
+            panel.label.setText('fillet_shell')
+            panel.start(); wait(lambda: panel.process is None)
+            window.show_sampled_area('fillet_shell')
+            capture(window, 'open-shell-unavailable-normals')
         finally:
             # This is a disposable example session, so never prompt to save it.
             window.confirm_unsaved_changes = lambda *args, **kwargs: True

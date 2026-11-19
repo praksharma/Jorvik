@@ -20,6 +20,10 @@ unambiguous result determines the sign. These are numerical checks, not a proof
 for arbitrary thin or invalid CAD. Broader containment validation and certified
 sampling bounds remain open release work. Normals do not alter point coordinates.
 
+![Open CASCADE BREP cylinder showing available CAD containment-verified outward normals in Properties.](../assets/screenshots/brep-cylinder-normals.png)
+
+![Open surface STEP shell showing unavailable outward normals and the exact parent-domain explanation in Properties.](../assets/screenshots/open-shell-unavailable-normals.png)
+
 Export schema **2** stores each available normal array under the manifest's
 `normals` key, with shape `(point, xyz)` alongside its coordinate array. In xarray,
 use `ds[ds[label].attrs['normals_coordinate']]`; in NPZ, load the key named by the

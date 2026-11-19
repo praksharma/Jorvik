@@ -98,6 +98,8 @@ Try the downloaded fixtures under `examples/geometries/cad/`: `t20_data.step`
 (surface-only cube). README, provenance.json and LICENSE.txt record pinned
 upstream sources, checksums and licensing. They are not converted `.geo` files.
 
+![3D STEP solid t20_data.step imported with B-spline boundary samples and tetrahedral volume interior samples.](../assets/screenshots/step-solid-imported.png)
+
 STEP/BREP/IGES support is validated on these small fixtures; industrial CAD,
 assemblies, additional STEP application protocols, units, healing and stable
 cross-import region identifiers still require broader testing. No STL, Parasolid,
