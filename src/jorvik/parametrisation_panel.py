@@ -183,7 +183,7 @@ class ParametrisationDialog(QDialog):
         self.warning.setText('Only checked point clouds move. CAD geometry stays fixed; boundary/interior consistency is unverified.' if regions else 'Geometry display and all sampled regions transform together. The source CAD file is unchanged.')
 
     def _base_setup(self):
-        return {'schema_version': 2, 'scope': self.scope.currentData(),
+        setup = {'schema_version': 2, 'scope': self.scope.currentData(),
                 'translation': [spin.value() for spin in self.offsets],
                 'rotation_axis': [spin.value() for spin in self.rotation_axis],
                 'rotation_angle': self.rotation_angle.value(), 'angle_units': 'degrees',
@@ -193,6 +193,9 @@ class ParametrisationDialog(QDialog):
                 'regions': [self.regions.item(i).text() for i in range(self.regions.count())
                             if self.regions.item(i).checkState() == Qt.CheckState.Checked],
                 'source_hash': self.source_hash}
+        if self.window.geometry and self.window.geometry.get('geo_parameters'):
+            setup['geo_parameters'] = deepcopy(self.window.geometry['geo_parameters'])
+        return setup
 
     def setup(self):
         setup = self._base_setup()
@@ -239,12 +242,25 @@ class ParametrisationDialog(QDialog):
         if self.sweep_panel.running: return
         try:
             setup = self.active_setup()
-            self.window.view.set_translation_preview(setup)
+            if setup.get('geo_overrides'):
+                from .parametrisation import transform_batches
+                preview_batches = transform_batches(self.window.sampling.batches, setup)
+                self._geo_preview_active = True
+                self.window.view.set_samples({'batches': preview_batches, **self.window.sampling.preview_style()})
+                self.window.view.set_translation_preview(None)
+            else:
+                if getattr(self, '_geo_preview_active', False):
+                    self._geo_preview_active = False
+                    self.window.sampling.refresh_preview()
+                self.window.view.set_translation_preview(setup)
             self.status.setText('Preview active — original datasets unchanged. Export processes the selected values independently.')
         except (ValueError, TypeError) as error:
             self.report_error(error)
 
     def restore(self):
+        if getattr(self, '_geo_preview_active', False):
+            self._geo_preview_active = False
+            self.window.sampling.refresh_preview()
         self.window.view.set_translation_preview(None)
         self.status.setText('Original view restored.')
 

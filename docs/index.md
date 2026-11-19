@@ -37,6 +37,7 @@ physics, prescribed boundary values and solvers belong in downstream tools.
 | Compare all 7 sampling methods, edit areas in place and use dark theme | [Tutorial: Comparing sampling methods and editing areas](guide/tutorial-editing-and-comparison.md) |
 | Preview transforms, export sweeps and verify results in the GUI | [Transforms and sweeps in the GUI](guide/transforms-and-sweeps.md) |
 | Run LHS parameter sweeps, region augmentation and PINN training loops | [Tutorial: LHS parameter sweeps and region augmentation](guide/tutorial-parametric-lhs-and-augmentation.md) |
+| Export quadrature weights, boundary distances, CAD regeneration sweeps and DataTree bundles | [Tutorial: Quadrature weights, boundary-distance refinement and CAD regeneration sweeps](guide/tutorial-advanced-pinn-workflows.md) |
 | Import CAD and select the right entity | [Geometry and selection](guide/geometry.md) |
 | Label several faces or edges together | [Boundary regions](guide/regions.md) |
 | Save/load reusable sampling settings | [Sampling recipes](guide/sampling.md#sampling-recipe-files) |
@@ -52,12 +53,14 @@ physics, prescribed boundary values and solvers belong in downstream tools.
 
 ## Know the current limits
 
-Surface trims and solid interiors use numerical geometry checks. Units are
-currently unspecified, and arbitrary industrial CAD still needs validation.
-Normals are omitted when outward orientation cannot be verified. Parametrisation
-supports translation, rotation, positive scaling, named parameter designs and
-sequential background sweeps with checksum-verified training reads. Affine maps
-do not regenerate CAD, resample points or provide integration weights.
+Surface trims and solid interiors use numerical geometry checks. STEP and IGES
+files record their declared coordinate units (`mm`, `m`, `in`, etc.); `.geo` and
+`.brep` units remain unspecified. Normals are omitted when outward orientation
+cannot be verified. Parametrisation supports translation, rotation, positive
+scaling, `.geo` dimensional CAD regeneration, per-point quadrature weights with
+affine Jacobian transport, unsigned boundary distances, named parameter designs,
+consolidated `xarray.DataTree` sweep bundles and sequential background sweeps
+with checksum-verified training reads.
 
 Local installation checks cover macOS arm64/Python 3.12 and Linux/Wayland with
 Python 3.12 and 3.14. Broader CAD compatibility, Windows checks and further

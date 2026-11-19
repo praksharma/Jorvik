@@ -37,9 +37,18 @@ are invented for open shells or datasets whose normals were unavailable. Invalid
 frames, missing edge mappings or co-normals outside their plane are rejected.
 
 Scaling changes point density per unit length/area/volume, and non-uniform
-scaling can change relative surface density. Exports contain transformed points,
-not Jacobian/integration weights, so downstream integrations need their own
-measure treatment. No point count adjustment or automatic resampling is applied.
+scaling can change relative surface density. Jorvik updates each point's
+quadrature weight (`weights`) and total `domain_measure` using the exact affine
+Jacobian determinant: $|\det \mathbf{A}|$ for 3D volumes, the surface cofactor
+factor $|\det \mathbf{A}|\,\|\mathbf{A}^{-T}\mathbf{n}_i\|_2$ for 2D surfaces,
+and the curve tangent stretch $\|\mathbf{A}\mathbf{t}_i\|_2$ for 1D curves.
+Unsigned boundary distances (`boundary_distances`) scale by $s$ under uniform
+scaling ($s_x = s_y = s_z = s$) and are omitted with an explicit
+`distance_status: "unavailable"` note under anisotropic scaling. No point count
+adjustment or automatic resampling is applied for pure affine transforms; when
+`.geo` script parameters (`geo:<name>`) are bound in a parameter design, Jorvik
+regenerates the CAD geometry and re-runs each dataset's sampling recipe before
+applying the affine transform.
 
 Parameter edits only mark the preview stale. Click **Preview configuration**
 explicitly to update, or process/export directly. Restore, Close and Escape

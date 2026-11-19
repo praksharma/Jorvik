@@ -21,6 +21,10 @@ def area_details(area, status):
         details.append('Normals: ' + area['normal_status'])
         if area.get('normal_validation'): details.append('Orientation: ' + area['normal_validation'])
         if area.get('normal_note'): details.append(area['normal_note'])
+    if status == 'Generated' and area.get('domain_measure') is not None:
+        details.append(f"Measure: {area['domain_measure']:.6g}")
+    if status == 'Generated' and area.get('distance_status') == 'available':
+        details.append('Boundary distance: available')
     return details
 
 

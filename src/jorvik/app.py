@@ -326,8 +326,15 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
             if self.isolate_geometry_action.isChecked():
                 entities = [list(key) for key in area['entities']]
                 if area['entity_dimension'] == 3:
-                    # Interior generation currently targets all domain volumes.
-                    entities = [[e['dimension'],e['tag']] for e in self.geometry['entities']]
+                    vol_tags = {t for d, t in area['entities'] if d == 3}
+                    topo = {(e['dimension'], e['tag']): e for e in self.geometry.get('topology', [])}
+                    bound_faces = {tuple(b) for t in vol_tags for b in topo.get((3, t), {}).get('boundary', []) if b[0] == 2}
+                    if bound_faces and len(vol_tags) < self.geometry.get('solid_count', 1):
+                        entities = [list(k) for k in sorted(bound_faces)]
+                        entities += [boundary for e in self.geometry['entities']
+                                     if (e['dimension'], e['tag']) in bound_faces for boundary in e['boundary'] if boundary[0] == 1]
+                    else:
+                        entities = [[e['dimension'],e['tag']] for e in self.geometry['entities']]
                 else:
                     keys = {tuple(key) for key in entities}
                     entities += [boundary for e in self.geometry['entities']
@@ -667,11 +674,19 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
                 if hints:
                     item.setToolTip(0, "\n".join(hints))
                 self.items[key] = item
+        volumes = [e for e in geometry.get("topology", []) if e["dimension"] == 3]
+        if volumes:
+            vol_group = QTreeWidgetItem(parent, ["Volumes"])
+            for entity in volumes:
+                item = QTreeWidgetItem(vol_group, [f"Volume {entity['tag']} · {entity['type']}"])
+                if entity.get("name"):
+                    item.setToolTip(0, "CAD name: " + entity["name"])
         regions = QTreeWidgetItem(self.tree, ["Imported groups"])
         for group in geometry["groups"]:
-            if group["dimension"] in (1, 2):
+            if group["dimension"] in (1, 2, 3):
                 label = group["name"] or f"Group {group['tag']}"
-                item = QTreeWidgetItem(regions, [f"{label} · {'edges' if group['dimension'] == 1 else 'faces'}"])
+                kind = 'edges' if group['dimension'] == 1 else ('faces' if group['dimension'] == 2 else 'volumes')
+                item = QTreeWidgetItem(regions, [f"{label} · {kind}"])
                 item.setToolTip(0, "Entities: " + ", ".join(map(str, group["entities"])))
         parent.setExpanded(True)
         self.tree.blockSignals(False)

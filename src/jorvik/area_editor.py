@@ -28,6 +28,7 @@ class AreaEditor(QDialog):
         self.compute=QComboBox();self.compute.addItem('Multicore','multicore');self.compute.addItem('Reproducible','reproducible')
         self.compute.setCurrentIndex(self.compute.findData(area.get('compute_mode','reproducible')));form.addRow('Compute mode',self.compute)
         self.cores=QSpinBox();self.cores.setRange(1,64);self.cores.setValue(area.get('cpu_threads',1));form.addRow('CPU cores',self.cores)
+        self.area_refinement = area.get('refinement')
         self.entities=QListWidget();layout.addWidget(self.entities)
         self.selected_keys={tuple(e) for e in area['entities']}
         self.target.currentIndexChanged.connect(self.populate_entities);self.populate_entities()
@@ -59,11 +60,13 @@ class AreaEditor(QDialog):
         if not interior and not entities:
             QMessageBox.warning(self,'Sampling target','Choose at least one face or edge.');return
         request={k:self.window.geometry[k] for k in ('document','source','source_hash')}
-        for key in ('source_format', 'import_options'):
+        for key in ('source_format', 'import_options', 'coordinate_units'):
             if key in self.window.geometry:
                 request[key] = self.window.geometry[key]
         request.update(label=label,target='interior' if interior else 'selection',entities=[] if interior else entities,
                        method=self.method.currentData(),count=self.count.value(),seed=self.seed.value(),resolution=self.resolution.currentData(),
                        compute_mode=self.compute.currentData(),cpu_threads=self.cores.value() if self.compute.currentData()=='multicore' else 1)
+        if self.area_refinement is not None:
+            request['refinement'] = self.area_refinement
         self.window.sampling.generate_request(request,replace_label=self.original_label)
         self.accept()

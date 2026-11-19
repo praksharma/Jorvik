@@ -1,11 +1,62 @@
 """Shared source loading for display and sampling; independent of Qt."""
 from pathlib import Path
 import os
+import re
 import sys
 
 FORMATS = {'.geo': 'geo', '.step': 'step', '.stp': 'step',
            '.brep': 'brep', '.iges': 'iges', '.igs': 'iges'}
 FILE_FILTER = 'Supported geometry (*.geo *.step *.stp *.brep *.iges *.igs);;Gmsh (*.geo);;STEP (*.step *.stp);;Open CASCADE BREP (*.brep);;IGES (*.iges *.igs)'
+DEFAULT_UNITS = 'Source geometry units (unspecified)'
+
+_STEP_SI_PREFIX = {
+    '.MILLI.': 'mm',
+    '.CENTI.': 'cm',
+    '$': 'm',
+}
+_IGES_UNIT_NAME = {
+    'MM': 'mm', 'MILLIMETER': 'mm', 'MILLIMETERS': 'mm',
+    'CM': 'cm', 'CENTIMETER': 'cm', 'CENTIMETERS': 'cm',
+    'M': 'm', 'METER': 'm', 'METERS': 'm', 'METRE': 'm', 'METRES': 'm',
+    'IN': 'in', 'INCH': 'in', 'INCHES': 'in',
+    'FT': 'ft', 'FEET': 'ft', 'FOOT': 'ft',
+}
+
+
+def detect_coordinate_units(filename, source_format=None):
+    """Detect unambiguous declared CAD length units without rescaling coordinates."""
+    path = Path(filename)
+    kind = source_format or FORMATS.get(path.suffix.lower())
+    if kind not in ('step', 'iges') or not path.is_file():
+        return DEFAULT_UNITS
+    try:
+        text = path.read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        return DEFAULT_UNITS
+    found = set()
+    if kind == 'step':
+        upper = text.upper()
+        for match in re.finditer(r'SI_UNIT\s*\(\s*(\.[A-Z]+\.|\$)\s*,\s*\.METRE\.\s*\)', upper):
+            unit = _STEP_SI_PREFIX.get(match.group(1))
+            if unit:
+                found.add(unit)
+        if re.search(r"CONVERSION_BASED_UNIT\s*\(\s*'INCH'", upper):
+            found.add('in')
+        elif re.search(r"CONVERSION_BASED_UNIT\s*\(\s*'FOOT'", upper):
+            found.add('ft')
+        if len(found) == 1:
+            return next(iter(found))
+        return DEFAULT_UNITS
+    # IGES Global section: inspect lines with 'G' in column 73 (or standard Hollerith unit tokens)
+    global_lines = [line[:72] for line in text.splitlines() if len(line) >= 73 and line[72] == 'G']
+    header = ''.join(global_lines) if global_lines else text[:4096]
+    for match in re.finditer(r',\s*\d+H([A-Za-z]+)\s*,', header):
+        token = match.group(1).upper()
+        if token in _IGES_UNIT_NAME:
+            found.add(_IGES_UNIT_NAME[token])
+    if len(found) == 1:
+        return next(iter(found))
+    return DEFAULT_UNITS
 
 
 def open_source(gmsh, filename):

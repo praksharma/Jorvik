@@ -6,7 +6,7 @@ import time
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QLabel, QComboBox,
-    QPushButton, QProgressBar, QFileDialog, QMessageBox,
+    QCheckBox, QPushButton, QProgressBar, QFileDialog, QMessageBox,
 )
 
 
@@ -24,7 +24,7 @@ def resume_sweep(*args, **kwargs):
 class SweepWorker(QThread):
     progressChanged = Signal(dict)
 
-    def __init__(self, batches, base, records, destination, file_format, fail_fast, parent=None, resume_from=None):
+    def __init__(self, batches, base, records, destination, file_format, fail_fast, parent=None, resume_from=None, consolidated=False):
         super().__init__(parent)
         self.batches = batches
         self.base = base
@@ -33,6 +33,7 @@ class SweepWorker(QThread):
         self.file_format = file_format
         self.fail_fast = fail_fast
         self.resume_from = resume_from
+        self.consolidated = bool(consolidated)
         self.cancel_event = threading.Event()
         self.result = None
         self.error = None
@@ -41,6 +42,8 @@ class SweepWorker(QThread):
         try:
             options = dict(fail_fast=self.fail_fast, cancelled=self.cancel_event.is_set,
                            progress=self.progressChanged.emit)
+            if self.consolidated:
+                options['consolidated'] = True
             if self.resume_from is None:
                 self.result = export_sweep(self.batches, self.base, self.records, self.destination,
                                            file_format=self.file_format, **options)
@@ -87,6 +90,9 @@ class SweepExportPanel(QWidget):
         self.error_policy.addItem('Stop at the first failed configuration', True)
         self.error_policy.addItem('Continue and record configuration failures', False)
         form.addRow('On error', self.error_policy)
+        self.consolidated_check = QCheckBox('Also write consolidated single-file bundle (sweep_bundle.nc / .npz)')
+        self.consolidated_check.setObjectName('sweep_consolidated')
+        form.addRow('', self.consolidated_check)
         layout.addLayout(form)
         buttons = QHBoxLayout()
         self.start_button = QPushButton('Export generated design…')
@@ -119,6 +125,7 @@ class SweepExportPanel(QWidget):
     def _set_controls(self, busy):
         self.file_format.setEnabled(not busy)
         self.error_policy.setEnabled(not busy)
+        self.consolidated_check.setEnabled(not busy)
         self.start_button.setEnabled(not busy)
         self.resume_button.setEnabled(not busy)
         self.cancel_button.setEnabled(busy)
@@ -151,7 +158,8 @@ class SweepExportPanel(QWidget):
             QMessageBox.warning(self, 'Sweep export', str(error))
             return False
         worker = SweepWorker(batches, base, records, destination,
-                             self.file_format.currentData(), self.error_policy.currentData(), self, resume_from=resume_from)
+                             self.file_format.currentData(), self.error_policy.currentData(), self,
+                             resume_from=resume_from, consolidated=self.consolidated_check.isChecked())
         self._worker = worker
         self._destination = destination
         self.last_result = self.last_error = None

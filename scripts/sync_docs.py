@@ -12,6 +12,7 @@ PAGES = [
     ('guide/tutorial-cad-workflows.md', 'Tutorial: Neutral CAD workflows with STEP and BREP', ['Tutorial: Neutral CAD workflows with STEP and BREP']),
     ('guide/tutorial-editing-and-comparison.md', 'Tutorial: Comparing sampling methods and editing areas', ['Tutorial: Comparing sampling methods and editing areas']),
     ('guide/tutorial-parametric-lhs-and-augmentation.md', 'Tutorial: LHS parameter sweeps and region augmentation', ['Tutorial: LHS parameter sweeps and region augmentation']),
+    ('guide/tutorial-advanced-pinn-workflows.md', 'Tutorial: Quadrature weights, boundary-distance refinement and CAD regeneration sweeps', ['Tutorial: Quadrature weights, boundary-distance refinement and CAD regeneration sweeps']),
     ('guide/transforms-and-sweeps.md', 'Transforms and sweeps in the GUI', ['Transforms and sweeps in the GUI']),
     ('development/installation.md', 'Installing and launching Jorvik', ['Installing and launching Jorvik']),
     ('guide/workspace.md', 'Workspace and visibility', ['Desktop foundation', 'Toolbar and visibility', 'Face and sampled-area context menus']),

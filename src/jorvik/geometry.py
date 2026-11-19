@@ -5,7 +5,8 @@ import math
 import sys
 from pathlib import Path
 from uuid import uuid4
-from .cad_import import open_source, import_options
+from .cad_import import open_source, import_options, detect_coordinate_units
+from .cad_regeneration import discover_geo_parameters
 from .domains import domain_kind
 
 
@@ -30,7 +31,7 @@ def load_geometry(filename):
     path = Path(filename).resolve()
     if not path.is_file():
         raise ValueError("Geometry file does not exist.")
-    gmsh.initialize(["jorvik"], readConfigFiles=False)
+    gmsh.initialize(["jorvik"], readConfigFiles=False, interruptible=False)
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         source_format = open_source(gmsh, path)
@@ -81,9 +82,13 @@ def load_geometry(filename):
                 "interior_domain": interior_domain,
                 "source_format": source_format, "import_options": import_options(gmsh, source_format),
                 "solid_count": len(gmsh.model.getEntities(3)),
-                "coordinate_units": "Source geometry units (unspecified)",
+                "coordinate_units": detect_coordinate_units(path, source_format),
                 "source_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
                 "entities": entities, "groups": groups, "topology": topology}
+        if source_format == "geo":
+            geo_params = discover_geo_parameters(path)
+            if geo_params:
+                geometry["geo_parameters"] = geo_params
         from .topology import validate_topology
         validate_topology(geometry)
         return geometry

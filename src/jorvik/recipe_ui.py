@@ -49,6 +49,8 @@ class SamplingRecipeActions:
         target = request['target']
         if target == 'region':
             data = {'region_id': request['boundary_region']['id']}
+        elif target == 'interior' and len(request['entities']) == 1 and request['entities'][0][0] == 3 and self.target.findData({'volume_tag': request['entities'][0][1]}) >= 0:
+            data = {'volume_tag': request['entities'][0][1]}
         elif target == 'group':
             data = {'dimension': request['entities'][0][0], 'tags': [item[1] for item in request['entities']]}
             # Group membership order is not significant.
@@ -59,6 +61,26 @@ class SamplingRecipeActions:
         else: data = target
         index = self.target.findData(data)
         if index < 0: raise ValueError('Recipe target is unavailable; no settings were changed.')
+        ref = request.get('refinement')
+        ref_index = 0
+        if ref is not None:
+            ref_dim = ref['entities'][0][0]
+            ref_tags = {item[1] for item in ref['entities']}
+            ref_index = -1
+            for i in range(1, self.refinement_target.count()):
+                item_data = self.refinement_target.itemData(i)
+                if not isinstance(item_data, dict):
+                    continue
+                if 'region_id' in item_data:
+                    region = next((r for r in self.window.boundary_regions if r['id'] == item_data['region_id']), None)
+                    if region and region['entities'][0][0] == ref_dim and {e[1] for e in region['entities']} == ref_tags:
+                        ref_index = i
+                        break
+                elif item_data.get('dimension') == ref_dim and set(item_data.get('tags', [])) == ref_tags:
+                    ref_index = i
+                    break
+            if ref_index < 0:
+                raise ValueError('Recipe refinement boundary target is unavailable; no settings were changed.')
         before = self.window.edit_snapshot()
         if before is not None: before['recipe_controls'] = self.recipe_control_state()
         self.target.setCurrentIndex(index)
@@ -67,6 +89,15 @@ class SamplingRecipeActions:
         self.label.setText(request['label']); self.resolution.setCurrentIndex(accuracy)
         self.compute_mode.setCurrentIndex(self.compute_mode.findData(request['compute_mode']))
         self.cpu_threads.setValue(request['cpu_threads'])
+        self.refinement_target.setCurrentIndex(ref_index)
+        if ref is not None:
+            self.refinement_bias.setValue(ref['bias'])
+            self.refinement_decay.setValue(ref['decay'])
+            self.include_distance.setChecked(ref.get('include_distance', True))
+        else:
+            self.refinement_bias.setValue(0.0)
+            self.refinement_decay.setValue(0.15)
+            self.include_distance.setChecked(True)
         if target == 'selection':
             self.window.set_selection_mode('edge' if request['entities'][0][0] == 1 else 'face')
             self.window.selection = {tuple(item) for item in request['entities']}
@@ -78,15 +109,21 @@ class SamplingRecipeActions:
 
     def recipe_control_state(self):
         return {'combos': {name: deepcopy(getattr(self, name).currentData())
-                           for name in ('target', 'method', 'resolution', 'compute_mode')},
-                'spins': {name: getattr(self, name).value() for name in ('count', 'seed', 'cpu_threads')},
+                           for name in ('target', 'method', 'resolution', 'compute_mode', 'refinement_target')},
+                'spins': {name: getattr(self, name).value() for name in ('count', 'seed', 'cpu_threads', 'refinement_bias', 'refinement_decay')},
+                'include_distance': self.include_distance.isChecked(),
                 'label': self.label.text(), 'mode': self.window.view.mode,
                 'selection': [list(item) for item in sorted(self.window.selection)]}
 
     def restore_recipe_controls(self, state):
         for name, value in state['combos'].items():
-            combo = getattr(self, name); combo.setCurrentIndex(combo.findData(value))
-        for name, value in state['spins'].items(): getattr(self, name).setValue(value)
+            if hasattr(self, name):
+                combo = getattr(self, name); combo.setCurrentIndex(combo.findData(value))
+        for name, value in state['spins'].items():
+            if hasattr(self, name):
+                getattr(self, name).setValue(value)
+        if 'include_distance' in state:
+            self.include_distance.setChecked(state['include_distance'])
         self.label.setText(state['label'])
         self.window.set_selection_mode(state['mode'])
         self.window.selection = {tuple(item) for item in state['selection']}
