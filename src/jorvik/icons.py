@@ -36,24 +36,17 @@ def tool_icon(name, colour):
 
 
 BRAND_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
-  <path d="M64 7 L111 34 C114.5 36 116.5 39.7 116.5 43.8 V84.2 C116.5 88.3 114.5 92 111 94 L64 121 L17 94 C13.5 92 11.5 88.3 11.5 84.2 V43.8 C11.5 39.7 13.5 36 17 34 Z"
-        fill="#144d54" stroke="#52cbc0" stroke-width="4"/>
-  <circle cx="64" cy="64" r="39" fill="#237a84" fill-opacity="0.35" stroke="#7ce5d9" stroke-width="2.4"/>
-  <circle cx="64" cy="64" r="20" fill="#13252b" stroke="#ffc857" stroke-width="3"/>
-  <g stroke="#ffc857" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M64 25 V14 M60 18 L64 14 L68 18"/>
-    <path d="M103 64 H114 M110 60 L114 64 L110 68"/>
-    <path d="M64 44 V52 M61 49 L64 52 L67 49"/>
+  <circle cx="64" cy="64" r="56" fill="#16282e" stroke="#4db8ad" stroke-width="5"/>
+  <circle cx="64" cy="64" r="46" stroke="#c88a2b" stroke-width="1.8" stroke-opacity="0.7"/>
+  <g fill="#ffc857">
+    <polygon points="64,11 68,15 64,19 60,15"/>
+    <polygon points="117,64 113,68 109,64 113,60"/>
+    <polygon points="64,117 68,113 64,109 60,113"/>
+    <polygon points="11,64 15,68 19,64 15,60"/>
   </g>
-  <g fill="#7ef0e3" stroke="#0f282e" stroke-width="1.2">
-    <circle cx="64" cy="34" r="3.4"/><circle cx="85" cy="43" r="3.4"/><circle cx="94" cy="64" r="3.4"/>
-    <circle cx="85" cy="85" r="3.4"/><circle cx="64" cy="94" r="3.4"/><circle cx="43" cy="85" r="3.4"/>
-    <circle cx="34" cy="64" r="3.4"/><circle cx="43" cy="43" r="3.4"/>
-  </g>
-  <g fill="#ffc857" stroke="#13252b" stroke-width="1.4">
-    <circle cx="64" cy="44" r="3.8"/><circle cx="84" cy="64" r="3.8"/><circle cx="64" cy="84" r="3.8"/><circle cx="44" cy="64" r="3.8"/>
-    <circle cx="64" cy="25" r="3.8"/><circle cx="103" cy="64" r="3.8"/><circle cx="64" cy="103" r="3.8"/><circle cx="25" cy="64" r="3.8"/>
-  </g>
+  <path d="M54 34 H78 M70 34 V80 L54 94 L40 82"
+        stroke="#eef4f5" stroke-width="8.5" stroke-linecap="square" stroke-linejoin="miter"/>
+  <polygon points="88,56 95,64 88,72 81,64" fill="#ffc857"/>
 </svg>"""
 
 
