@@ -1,103 +1,37 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 156" width="760" height="156" fill="none">
-  <defs>
-    <linearGradient id="jv-card-dark" x1="0" y1="0" x2="760" y2="156" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#192126"/>
-      <stop offset="100%" stop-color="#12181c"/>
-    </linearGradient>
-    <linearGradient id="jv-bg-d" x1="26" y1="22" x2="130" y2="134" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#1d353d"/>
-      <stop offset="55%" stop-color="#145860"/>
-      <stop offset="100%" stop-color="#0e3c42"/>
-    </linearGradient>
-    <linearGradient id="jv-domain-d" x1="40" y1="38" x2="116" y2="118" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#53aeb8" stop-opacity="0.38"/>
-      <stop offset="100%" stop-color="#1f7a84" stop-opacity="0.22"/>
-    </linearGradient>
-    <linearGradient id="jv-rim-d" x1="34" y1="28" x2="122" y2="128" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#64d8cb"/>
-      <stop offset="100%" stop-color="#2a949e"/>
-    </linearGradient>
-  </defs>
-
-  <!-- Dark card frame -->
-  <rect x="2" y="2" width="756" height="152" rx="18" fill="url(#jv-card-dark)" stroke="#2e484f" stroke-width="2"/>
-
-  <!-- Decorative subtle background coordinate grid on right -->
-  <g stroke="#64d8cb" stroke-opacity="0.08" stroke-width="1">
-    <line x1="560" y1="12" x2="560" y2="144"/>
-    <line x1="600" y1="12" x2="600" y2="144"/>
-    <line x1="640" y1="12" x2="640" y2="144"/>
-    <line x1="680" y1="12" x2="680" y2="144"/>
-    <line x1="720" y1="12" x2="720" y2="144"/>
-    <line x1="540" y1="38" x2="744" y2="38"/>
-    <line x1="540" y1="78" x2="744" y2="78"/>
-    <line x1="540" y1="118" x2="744" y2="118"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 120" width="560" height="120" fill="none">
+  <!-- Minimalist Norse carved wordmark (dark mode): J O R V I K -->
+  <g stroke="#4db8ad" stroke-width="2" stroke-linecap="round">
+    <line x1="68" y1="18" x2="256" y2="18"/>
+    <line x1="304" y1="18" x2="492" y2="18"/>
+    <line x1="68" y1="102" x2="256" y2="102"/>
+    <line x1="304" y1="102" x2="492" y2="102"/>
+  </g>
+  <!-- Center & corner Norse lozenge knots -->
+  <g fill="#ffc857">
+    <polygon points="280,11 287,18 280,25 273,18"/>
+    <polygon points="280,95 287,102 280,109 273,102"/>
+    <polygon points="52,60 58,54 64,60 58,66"/>
+    <polygon points="496,60 502,54 508,60 502,66"/>
   </g>
 
-  <!-- Emblem translated by (14, 14) -->
-  <g transform="translate(14, 14)">
-    <path d="M64 7 L111 34 C114.5 36 116.5 39.7 116.5 43.8 V84.2 C116.5 88.3 114.5 92 111 94 L64 121 L17 94 C13.5 92 11.5 88.3 11.5 84.2 V43.8 C11.5 39.7 13.5 36 17 34 Z"
-          fill="url(#jv-bg-d)" stroke="url(#jv-rim-d)" stroke-width="3.2"/>
-    <circle cx="64" cy="64" r="40" fill="url(#jv-domain-d)" stroke="#7ce5d9" stroke-width="2" stroke-opacity="0.75"/>
-    <circle cx="64" cy="64" r="30.5" stroke="#64d8cb" stroke-width="1" stroke-dasharray="3.5 3.5" stroke-opacity="0.45"/>
-    <path d="M64 24 V44 M64 84 V104 M24 64 H44 M84 64 H104 M35.7 35.7 L49.9 49.9 M78.1 78.1 L92.3 92.3 M92.3 35.7 L78.1 49.9 M49.9 78.1 L35.7 92.3"
-          stroke="#64d8cb" stroke-width="1" stroke-opacity="0.32" stroke-linecap="round"/>
-    <circle cx="64" cy="64" r="20" fill="#13252b" stroke="#ffc857" stroke-width="2.6"/>
-    <g stroke="#ffc857" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M64 24 V14 M60.5 17.5 L64 14 L67.5 17.5"/>
-      <path d="M104 64 H114 M110.5 60.5 L114 64 L110.5 67.5"/>
-      <path d="M35.7 92.3 L28.6 99.4 M28.6 94.2 L28.6 99.4 L33.8 99.4"/>
-      <path d="M64 44 V51.5 M61.5 49 L64 51.5 L66.5 49"/>
-      <path d="M84 64 H76.5 M79 61.5 L76.5 64 L79 66.5"/>
-      <path d="M49.9 78.1 L55.2 72.8 M52 72.8 H55.2 V76"/>
+  <!-- Centered chiseled runic/Norse letterforms: J O R V I K -->
+  <g transform="translate(16, 0)">
+    <g stroke="#eef4f5" stroke-width="6.5" stroke-linecap="butt" stroke-linejoin="miter" fill="none">
+      <!-- J -->
+      <path d="M95 34 H121 M112 34 V74 L98 86 L84 74"/>
+      <!-- O: Norse runic diamond -->
+      <polygon points="168,33 192,60 168,87 144,60"/>
+      <!-- R: angular Raido-rune R -->
+      <path d="M222 89 V34 H244 L258 47 L244 60 H222 M239 60 L261 88"/>
+      <!-- V -->
+      <path d="M286 32 L308 86 L330 32"/>
+      <!-- I -->
+      <path d="M355 34 H377 M366 34 V86 M355 86 H377"/>
+      <!-- K -->
+      <path d="M406 31 V89 M442 33 L409 60 L444 87"/>
     </g>
-    <g fill="#7ef0e3" stroke="#0f282e" stroke-width="1.2">
-      <circle cx="64" cy="33" r="3.1"/><circle cx="80" cy="37" r="2.9"/><circle cx="91" cy="51" r="3.1"/>
-      <circle cx="95" cy="64" r="2.9"/><circle cx="89" cy="79" r="3.1"/><circle cx="77" cy="91" r="2.9"/>
-      <circle cx="64" cy="95" r="3.1"/><circle cx="48" cy="90" r="2.9"/><circle cx="37" cy="78" r="3.1"/>
-      <circle cx="33" cy="64" r="2.9"/><circle cx="38" cy="49" r="3.1"/><circle cx="49" cy="37" r="2.9"/>
-      <circle cx="55" cy="42" r="2.6" fill="#b4fff6"/><circle cx="73" cy="42" r="2.6" fill="#b4fff6"/>
-      <circle cx="86" cy="55" r="2.6" fill="#b4fff6"/><circle cx="86" cy="73" r="2.6" fill="#b4fff6"/>
-      <circle cx="73" cy="86" r="2.6" fill="#b4fff6"/><circle cx="55" cy="86" r="2.6" fill="#b4fff6"/>
-      <circle cx="42" cy="73" r="2.6" fill="#b4fff6"/><circle cx="42" cy="55" r="2.6" fill="#b4fff6"/>
-    </g>
-    <g fill="#ffc857" stroke="#13252b" stroke-width="1.3">
-      <circle cx="64" cy="44" r="3.4"/><circle cx="78.1" cy="49.9" r="3.2"/><circle cx="84" cy="64" r="3.4"/>
-      <circle cx="78.1" cy="78.1" r="3.2"/><circle cx="64" cy="84" r="3.4"/><circle cx="49.9" cy="78.1" r="3.2"/>
-      <circle cx="44" cy="64" r="3.4"/><circle cx="49.9" cy="49.9" r="3.2"/><circle cx="64" cy="24" r="3.4"/>
-      <circle cx="92.3" cy="35.7" r="3.2"/><circle cx="104" cy="64" r="3.4"/><circle cx="92.3" cy="92.3" r="3.2"/>
-      <circle cx="64" cy="104" r="3.4"/><circle cx="35.7" cy="92.3" r="3.4"/><circle cx="24" cy="64" r="3.2"/>
-      <circle cx="35.7" cy="35.7" r="3.2"/>
-    </g>
-  </g>
 
-  <!-- Pure vector wordmark: J O R V I K -->
-  <g stroke="#eef6f7" stroke-width="7.2" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <path d="M174 30 H196 M189 30 V58 C189 67 183 72 174 72 C166 72 161 67 161 60"/>
-    <circle cx="231" cy="51" r="21"/>
-    <path d="M271 72 V30 H289 C297 30 302 35 302 42.5 C302 50 297 54.5 289 54.5 H271 M287 54.5 L303 72"/>
-    <path d="M320 30 L337 72 L354 30"/>
-    <path d="M373 30 H389 M381 30 V72 M373 72 H389"/>
-    <path d="M409 30 V72 M437 30 L411 52 L438 72"/>
-  </g>
-  <circle cx="231" cy="51" r="5.5" fill="#ffc857" stroke="#192126" stroke-width="2"/>
-
-  <!-- Tagline & capability pills -->
-  <text x="161" y="99" fill="#64d8cb" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14.5" font-weight="700" letter-spacing="0.9">
-    GEOMETRY-AWARE SAMPLING FOR PINNS &amp; SCIENTIFIC MACHINE LEARNING
-  </text>
-
-  <g font-family="system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600">
-    <rect x="161" y="113" width="128" height="24" rx="12" fill="#1c343a" stroke="#386872" stroke-width="1"/>
-    <text x="225" y="129" fill="#b7ece6" text-anchor="middle">.geo · STEP · BREP · IGES</text>
-
-    <rect x="297" y="113" width="136" height="24" rx="12" fill="#1c343a" stroke="#386872" stroke-width="1"/>
-    <text x="365" y="129" fill="#b7ece6" text-anchor="middle">7 QMC &amp; Grid Methods</text>
-
-    <rect x="441" y="113" width="156" height="24" rx="12" fill="#1c343a" stroke="#386872" stroke-width="1"/>
-    <text x="519" y="129" fill="#b7ece6" text-anchor="middle">Normals · Weights · d(x)</text>
-
-    <rect x="605" y="113" width="134" height="24" rx="12" fill="#362b14" stroke="#8f6d24" stroke-width="1"/>
-    <text x="672" y="129" fill="#ffd984" text-anchor="middle">xarray · NetCDF · NPZ</text>
+    <!-- Inner gold diamond core inside the runic O -->
+    <polygon points="168,52 175,60 168,68 161,60" fill="#ffc857"/>
   </g>
 </svg>

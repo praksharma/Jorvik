@@ -1,7 +1,7 @@
 # Jorvik desktop application
 
 <p align="center">
-  <img alt="Jorvik — Geometry-aware sampling for PINNs and scientific machine learning" src="assets/branding/jorvik-logo.svg" width="740">
+  <img alt="Jorvik" src="assets/branding/jorvik-logo.svg" width="460">
 </p>
 
 Open prepared CAD, label boundary regions, and generate reproducible collocation

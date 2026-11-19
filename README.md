@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/branding/jorvik-logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/assets/branding/jorvik-logo.svg">
-    <img alt="Jorvik — Geometry-aware sampling for PINNs and scientific machine learning" src="docs/assets/branding/jorvik-logo.svg" width="760">
+    <img alt="Jorvik" src="docs/assets/branding/jorvik-logo.svg" width="480">
   </picture>
 </p>
 
