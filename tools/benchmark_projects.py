@@ -38,6 +38,7 @@ def run(count):
         path=Path(directory)/'large.jorvik'
         started=time.perf_counter();save_project(path,geometry,[(batch,'Generated',True)],state)
         save_seconds=time.perf_counter()-started
+        del batch
         started=time.perf_counter();manifest,_=load_project(path)
         load_seconds=time.perf_counter()-started
         restored=manifest['areas'][0]['area']

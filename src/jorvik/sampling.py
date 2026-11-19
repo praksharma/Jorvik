@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .sampling_methods import METHODS
+from .sampling_methods import METHODS, RESOLUTIONS
 
 
 def radical_inverse(indices, base):
@@ -157,32 +157,46 @@ def _surface_samples(gmsh, tags, method, count, seed):
         return np.array(output).reshape(-1, 3), np.array(output_tags), warnings
     # Candidate designs are transformed through a measure-weighted distribution.
     # Rejection changes the strict LHS/stratification and Sobol balance properties.
-    draws = max(256, count*4)
-    for attempt in range(8):
-        unit = unit_points(method, draws, 4, seed+attempt)
-        indices, _ = _choose(unit[:, 0], bounds[:, 0]*bounds[:, 1])
-        tri = triangles[indices]
-        r = np.sqrt(unit[:, 1])
-        uv = (1-r[:, None])*tri[:, 0] + (r*(1-unit[:, 2]))[:, None]*tri[:, 1] + (r*unit[:, 2])[:, None]*tri[:, 2]
-        candidate_tags = owners[indices]
-        for tag in tags:
-            mask = candidate_tags == tag
-            local_uv, local_indices = uv[mask], indices[mask]
-            if not len(local_uv):
-                continue
-            jac = _jacobian(gmsh, tag, local_uv)
-            if np.any(jac > bounds[local_indices, 1]*(1+1e-8)):
-                raise ValueError('Surface curvature exceeded the numerical sampling envelope. No dataset was produced.')
-            accepted = unit[mask, 3] < jac / bounds[local_indices, 1]
-            coords = np.array(gmsh.model.getValue(2, tag, local_uv[accepted].ravel())).reshape(-1, 3)
-            if gmsh.model.getType(2, tag) == 'Plane':
-                coords = np.array([p for p in coords if gmsh.model.isInside(2, tag, p)]).reshape(-1, 3)
-            output.extend(coords);output_tags.extend([tag]*len(coords))
-        if len(output) >= count:
-            # Shuffle before truncation: avoid favouring the first face in a batch.
-            order = np.random.default_rng(seed).permutation(len(output))[:count]
-            return np.array(output)[order], np.array(output_tags)[order], warnings
-        draws = min(500000, max(256, (count-len(output))*6))
+    refinements = 0
+    for _ in range(5):
+        draws = max(256, count*4)
+        exceeded = False
+        for attempt in range(8):
+            unit = unit_points(method, draws, 4, seed+attempt)
+            indices, _ = _choose(unit[:, 0], bounds[:, 0]*bounds[:, 1])
+            tri = triangles[indices]
+            r = np.sqrt(unit[:, 1])
+            uv = (1-r[:, None])*tri[:, 0] + (r*(1-unit[:, 2]))[:, None]*tri[:, 1] + (r*unit[:, 2])[:, None]*tri[:, 2]
+            candidate_tags = owners[indices]
+            for tag in tags:
+                mask = candidate_tags == tag
+                local_uv, local_indices = uv[mask], indices[mask]
+                if not len(local_uv):
+                    continue
+                jac = _jacobian(gmsh, tag, local_uv)
+                over = jac > bounds[local_indices, 1]*(1+1e-8)
+                if not np.isfinite(jac).all() or (np.any(over) and refinements >= 4):
+                    raise ValueError('Surface curvature exceeded the numerical sampling envelope. No dataset was produced.')
+                if np.any(over):
+                    np.maximum.at(bounds[:, 1], local_indices[over], jac[over]*2)
+                    refinements += 1
+                    output.clear();output_tags.clear()
+                    exceeded = True
+                    break
+                accepted = unit[mask, 3] < jac / bounds[local_indices, 1]
+                coords = np.array(gmsh.model.getValue(2, tag, local_uv[accepted].ravel())).reshape(-1, 3)
+                if gmsh.model.getType(2, tag) == 'Plane':
+                    coords = np.array([p for p in coords if gmsh.model.isInside(2, tag, p)]).reshape(-1, 3)
+                output.extend(coords);output_tags.extend([tag]*len(coords))
+            if exceeded:
+                break
+            if len(output) >= count:
+                # Shuffle before truncation: avoid favouring the first face in a batch.
+                order = np.random.default_rng(seed).permutation(len(output))[:count]
+                return np.array(output)[order], np.array(output_tags)[order], warnings
+            draws = min(500000, max(256, (count-len(output))*6))
+        if not exceeded:
+            break
     raise ValueError('Unable to generate the requested surface samples within the candidate limit.')
 
 
@@ -259,9 +273,9 @@ def sample_geometry(request):
         from .domains import domain_kind
         interior_domain = domain_kind(gmsh.model, source_format)
         if request['target'] == 'interior':
-            if source_format != 'geo' and not gmsh.model.getEntities(3):
-                raise ValueError('Interior sampling requires solid volumes. This CAD file imported as surfaces only; sample its faces or supply a closed solid model.')
             if interior_domain == 'open_or_nonplanar':
+                if source_format != 'geo':
+                    raise ValueError('Interior sampling requires solid volumes or a coplanar planar sheet. This CAD file imported as open or non-planar surfaces only; sample its faces or supply a closed solid model.')
                 raise ValueError('Interior sampling requires a closed solid or a coplanar analytic-plane .geo domain. This model has open or non-planar surfaces; sample its faces or provide a valid solid.')
             dim = 3 if interior_domain == 'solid' else 2
             tags = [t for _, t in gmsh.model.getEntities(dim)]
@@ -279,7 +293,7 @@ def sample_geometry(request):
         if dim >= 2:
             # Independent mesh controls: never use the viewport's display triangles.
             resolution = request.get('resolution', 32)
-            if resolution not in (16, 32, 64):
+            if resolution not in RESOLUTIONS:
                 raise ValueError('Unsupported geometry accuracy setting.')
             bounds = gmsh.model.getBoundingBox(-1, -1)
             extent = max(bounds[i+3]-bounds[i] for i in range(3))

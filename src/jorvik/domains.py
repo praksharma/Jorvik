@@ -30,7 +30,7 @@ def planar_script_domain(model):
         return False
 
 
-def domain_kind(model, source_format):
+def domain_kind(model, source_format=None):
     if model.getEntities(3): return 'solid'
-    if source_format == 'geo' and planar_script_domain(model): return 'planar'
+    if planar_script_domain(model): return 'planar'
     return 'open_or_nonplanar'

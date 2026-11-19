@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import re
 from .cad_import import validate_import_metadata
-from .sampling_methods import METHODS
+from .sampling_methods import METHODS, RESOLUTIONS
 
 FIELDS = ('target', 'entities', 'method', 'count', 'seed', 'label', 'resolution', 'compute_mode', 'cpu_threads')
 
@@ -55,7 +55,7 @@ def validate_settings(settings):
         value = settings.get(field)
         if type(value) is not int or not low <= value <= high:
             raise ValueError(f'Recipe {field} must be an integer between {low} and {high}.')
-    if type(settings.get('resolution')) is not int or settings['resolution'] not in (16, 32, 64):
+    if type(settings.get('resolution')) is not int or settings['resolution'] not in RESOLUTIONS:
         raise ValueError('Recipe accuracy must be 16, 32 or 64.')
     if settings.get('compute_mode') not in ('reproducible', 'multicore'):
         raise ValueError('Invalid recipe compute mode.')
