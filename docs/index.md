@@ -1,68 +1,73 @@
 # Jorvik desktop application
 
-Open CAD, name boundaries and generate points in an interactive desktop workspace.
-Jorvik turns prepared geometry into reproducible, labelled datasets for
-PINNs and scientific machine learning. Keep the relationship between each point
-and its original face, edge or interior region, then bring the data into your own
-training code.
+<p align="center">
+  <img alt="Jorvik — Geometry-aware sampling for PINNs and scientific machine learning" src="assets/branding/jorvik-logo.svg" width="740">
+</p>
+
+Open prepared CAD, label boundary regions, and generate reproducible collocation
+and boundary datasets in an interactive 3D desktop workspace. Jorvik preserves
+the exact relationship between each sample point and its original CAD face, edge,
+or interior subdomain—exporting coordinates, entity tags, orientation-verified
+outward normals, per-point quadrature weights, and unsigned boundary distances
+$d(\mathbf{x})$ directly into your scientific ML training pipeline.
 
 **Development preview · 0.1.0.dev0**
 
 [Start with your first dataset](guide/getting-started.md){ .md-button .md-button--primary }
-[Preview transforms and export sweeps](guide/transforms-and-sweeps.md){ .md-button }
+[Quadrature weights, d(x) & CAD sweeps](guide/tutorial-advanced-pinn-workflows.md){ .md-button }
 
 ![Jorvik desktop workspace with annulus boundary and interior samples, dataset trees and Sampling controls.](assets/screenshots/sampled-workspace.png)
 
-Everything shown here is done through the GUI. The guides below show what to
-click, what each screen looks like, and how to save the result.
+## One workflow, from CAD to training tensors
 
-## One workflow, from CAD to arrays
+1. **Open geometry.** Import Gmsh `.geo` (built-in or Open CASCADE kernel), STEP (`.step`, `.stp`), Open CASCADE BREP (`.brep`), or IGES (`.iges`, `.igs`) with automatic STEP/IGES header unit detection.
+2. **Name boundaries.** Group existing CAD faces or edges into colour-coded boundary regions without re-partitioning or modifying the CAD file.
+3. **Generate & refine samples.** Choose among 7 spatial sampling methods, optionally concentrate density near reference walls using boundary-distance refinement $d(\mathbf{x})$, and compute per-point quadrature weights and verified outward normals.
+4. **Sweep & export.** Preview affine transforms or `.geo` dimensional CAD regenerations, run checksum-verified background parameter sweeps, and export `xarray.Dataset` / `xarray.DataTree` NetCDF (`.nc`) or NumPy (`.npz`) bundles.
 
-1. **Open geometry.** Import Gmsh `.geo`, STEP, Open CASCADE BREP or IGES.
-2. **Name boundaries.** Assign existing faces or edges to arbitrary regions.
-3. **Generate samples.** Choose a method, point count, seed and geometry accuracy.
-4. **Inspect and keep.** Preview several datasets, save the workspace and export
-   independent coordinate arrays with entity tags and applicable outward normals.
+---
 
-CAD already contains the boundary partitions. Jorvik labels and samples them;
-physics, prescribed boundary values and solvers belong in downstream tools.
+## Step-by-step illustrated tutorials
 
-## Find what you need
+Follow the seven GUI tutorials in order, from your first 2D dataset to 3D neutral CAD solids, parametric LHS sweeps, boundary-layer refinement, and `.geo` dimensional CAD regeneration:
 
-| Task | Read |
+| # | Tutorial | What You Will Build |
+| --- | --- | --- |
+| **1** | [**Your first dataset in the GUI**](guide/getting-started.md) | Import the 2D CFDBench annulus, pick inner circular arcs, save a `Region: inner` boundary definition, generate boundary and interior Sobol point clouds, and save a lightweight `.jorvik` project copy. |
+| **2** | [**3D sphere cutaway & volume sampling**](guide/tutorial-3d-sphere.md) | Pick 3D surface patches on a sphere, hide front faces to expose the hollow shell, mesh and sample the 3D tetrahedral interior with Hammersley points, isolate a region with CAD context, and switch to the dark theme. |
+| **3** | [**STEP & BREP neutral CAD workflows**](guide/tutorial-cad-workflows.md) | Import 3D Open CASCADE `.brep` and `.step` solids, inspect containment-verified outward surface normals on curved cylinders, and see how open surface shells (`cube_filet.stp`) protect against guessed interiors or unverified normals. |
+| **4** | [**Comparing methods & editing areas**](guide/tutorial-editing-and-comparison.md) | Compare structured parameter grids against low-discrepancy Sobol sequences side by side, edit and atomically regenerate an area in place with **Edit…**, duplicate datasets without resampling, and step through the 30-entry Undo/Redo history. |
+| **5** | [**Transforms & Cartesian sweeps**](guide/transforms-and-sweeps.md) | Preview reversible `scale → rotate → translate` configurations, build a Cartesian parameter design with literal constraints, export a background sweep, resume an interrupted run, and verify SHA-256 shard checksums in the **Sweep Inspector**. |
+| **6** | [**LHS sweeps, augmentation & PINNs**](guide/tutorial-parametric-lhs-and-augmentation.md) | Compare whole-domain transforms with selected-region augmentation, build a 3-parameter Latin hypercube (LHS) design with parameter-to-parameter ordering constraints ($s_x \le s_y$), and stream shards into a PINN training loop. |
+| **7** | [**Quadrature weights, $d(\mathbf{x})$ refinement & CAD sweeps**](guide/tutorial-advanced-pinn-workflows.md) | Concentrate interior collocation points near a wall with exponential boundary-distance refinement, export importance-corrected quadrature weights and $d(\mathbf{x})$, sweep `.geo` feature dimensions (`Geo: r_in`), and load a consolidated `sweep_bundle.nc` into an `xarray.DataTree`. |
+
+---
+
+## Topic & reference guide
+
+| Topic | Documentation Page |
 | --- | --- |
-| Follow the 2D annulus GUI walkthrough step by step | [Your first dataset in the GUI](guide/getting-started.md) |
-| Sample 3D curved surfaces, hide front faces and mesh 3D volumes | [Tutorial: 3D sphere cutaway and volume sampling](guide/tutorial-3d-sphere.md) |
-| Import 3D STEP/BREP solids, verify CAD normals and inspect open shells | [Tutorial: Neutral CAD workflows with STEP and BREP](guide/tutorial-cad-workflows.md) |
-| Compare all 7 sampling methods, edit areas in place and use dark theme | [Tutorial: Comparing sampling methods and editing areas](guide/tutorial-editing-and-comparison.md) |
-| Preview transforms, export sweeps and verify results in the GUI | [Transforms and sweeps in the GUI](guide/transforms-and-sweeps.md) |
-| Run LHS parameter sweeps, region augmentation and PINN training loops | [Tutorial: LHS parameter sweeps and region augmentation](guide/tutorial-parametric-lhs-and-augmentation.md) |
-| Export quadrature weights, boundary distances, CAD regeneration sweeps and DataTree bundles | [Tutorial: Quadrature weights, boundary-distance refinement and CAD regeneration sweeps](guide/tutorial-advanced-pinn-workflows.md) |
-| Import CAD and select the right entity | [Geometry and selection](guide/geometry.md) |
-| Label several faces or edges together | [Boundary regions](guide/regions.md) |
-| Save/load reusable sampling settings | [Sampling recipes](guide/sampling.md#sampling-recipe-files) |
-| Choose a sampling method and accuracy | [Sampling and accuracy](guide/sampling.md) |
-| Understand outward directions and unavailable normals | [Boundary normals](guide/normals.md) |
-| Save CAD and recipes without large point clouds | [Lightweight project copies](guide/projects.md#save-a-lightweight-copy-without-points) |
-| Save work or recover an interrupted session | [Projects and recovery](guide/projects.md) |
-| Automate integration or copy Python examples | [Code recipes (advanced)](guide/recipes.md) |
-| Install this development preview | [Installation and launch](development/installation.md) |
-| Load training arrays in Python | [NetCDF, NPZ and xarray](reference/exports.md) |
-| Run a complete annulus example | [Release checks and example](development/release.md) |
-| Contribute or verify a change | [Architecture](development/architecture.md) · [Testing](development/testing.md) |
+| Navigate the 3D viewport, toolbar, face masks, and region isolation | [Workspace and visibility](guide/workspace.md) |
+| Import `.geo`, STEP, BREP, and IGES files, detect units, and pick entities | [Geometry and selection](guide/geometry.md) |
+| Assign arbitrary labels and colours to sets of CAD faces or edges | [Boundary regions](guide/regions.md) |
+| Choose among the 7 sampling algorithms, accuracy levels, and JSON recipes | [Sampling and accuracy](guide/sampling.md) |
+| Understand outward surface normals, planar co-normals, and unavailable states | [Outward normals](guide/normals.md) |
+| Manage Sampled Areas, edit recipes in place, and use Undo/Redo | [Datasets and editing](guide/datasets.md) |
+| Save `.jorvik` archives, lightweight recipe-only copies, and crash recovery | [Projects and recovery](guide/projects.md) |
+| Understand affine matrices, Jacobian weight transport, and sweep schemas | [Transform schema and behaviour](guide/parametrisation.md) |
+| Load coordinates, entity tags, normals, weights, $d(\mathbf{x})$, and DataTrees | [NetCDF, NPZ and xarray](reference/exports.md) |
+| Automate headless sampling, recipes, transforms, and sweeps in Python | [Code recipes (advanced)](guide/recipes.md) |
+| Install Jorvik, configure Linux/Wayland NVIDIA rendering, or run tests | [Installation](development/installation.md) · [Graphics](guide/graphics.md) · [Testing](development/testing.md) |
 
-## Know the current limits
+## Scope and current limits
 
-Surface trims and solid interiors use numerical geometry checks. STEP and IGES
-files record their declared coordinate units (`mm`, `m`, `in`, etc.); `.geo` and
-`.brep` units remain unspecified. Normals are omitted when outward orientation
-cannot be verified. Parametrisation supports translation, rotation, positive
-scaling, `.geo` dimensional CAD regeneration, per-point quadrature weights with
-affine Jacobian transport, unsigned boundary distances, named parameter designs,
-consolidated `xarray.DataTree` sweep bundles and sequential background sweeps
-with checksum-verified training reads.
-
-Local installation checks cover macOS arm64/Python 3.12 and Linux/Wayland with
-Python 3.12 and 3.14. Broader CAD compatibility, Windows checks and further
-large-project memory improvements remain on the [roadmap](development/roadmap.md). See the detailed
-[release record](development/release.md) before relying on a new workflow.
+Surface trims and 3D solid interiors use independent Gmsh numerical discretizations.
+STEP and IGES files record their declared header coordinate units (`mm`, `m`, `in`, etc.);
+`.geo` and `.brep` coordinate units remain unspecified. Outward normals are omitted
+whenever orientation cannot be verified against a unique parent domain. Parametrisation
+supports translation, rotation, positive scaling, `.geo` dimensional CAD regeneration,
+per-point quadrature weights with exact affine Jacobian transport, unsigned boundary
+distances, named parameter designs, consolidated `xarray.DataTree` sweep bundles,
+and sequential background sweeps with SHA-256-verified training reads. See the
+[roadmap](development/roadmap.md) and [release record](development/release.md) for
+validated platforms and ongoing work.

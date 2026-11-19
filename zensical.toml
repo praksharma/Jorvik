@@ -50,6 +50,8 @@ nav = [
 [project.theme]
 language = "en"
 font = false
+logo = "assets/branding/jorvik-icon.svg"
+favicon = "assets/branding/jorvik-icon.svg"
 features = [
   "navigation.tabs",
   "navigation.sections",

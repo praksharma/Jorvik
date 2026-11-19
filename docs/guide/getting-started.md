@@ -97,3 +97,15 @@ In this picture, the loaded recipe asks for **64** boundary points, while
 **Sampled Areas** still shows the existing **128**. This is expected: the recipe
 sets up the next generation. If its label is already in use, Generate creates a
 new numbered label. Use **Edit → Undo/Redo** to undo or restore a recipe load.
+
+## 7. Where to go next: the seven-part GUI tutorial series
+
+After completing your first 2D annulus dataset, continue through the remaining
+six illustrated GUI tutorials:
+
+- **3D curved surfaces & volumes**: *Tutorial: 3D sphere cutaway and volume sampling*
+- **Neutral CAD solids & open shells**: *Tutorial: Neutral CAD workflows with STEP and BREP*
+- **Method comparison & in-place editing**: *Tutorial: Comparing sampling methods and editing areas*
+- **Affine transforms & Cartesian sweeps**: *Transforms and sweeps in the GUI*
+- **LHS parameter sweeps & PINN streaming**: *Tutorial: LHS parameter sweeps and region augmentation*
+- **Quadrature weights, $d(\mathbf{x})$ refinement & CAD regeneration**: *Tutorial: Quadrature weights, boundary-distance refinement and CAD regeneration sweeps*

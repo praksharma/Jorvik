@@ -98,6 +98,18 @@ In this picture, the loaded recipe asks for **64** boundary points, while
 sets up the next generation. If its label is already in use, Generate creates a
 new numbered label. Use **Edit → Undo/Redo** to undo or restore a recipe load.
 
+#### 7. Where to go next: the seven-part GUI tutorial series
+
+After completing your first 2D annulus dataset, continue through the remaining
+six illustrated GUI tutorials:
+
+- **3D curved surfaces & volumes**: *Tutorial: 3D sphere cutaway and volume sampling*
+- **Neutral CAD solids & open shells**: *Tutorial: Neutral CAD workflows with STEP and BREP*
+- **Method comparison & in-place editing**: *Tutorial: Comparing sampling methods and editing areas*
+- **Affine transforms & Cartesian sweeps**: *Transforms and sweeps in the GUI*
+- **LHS parameter sweeps & PINN streaming**: *Tutorial: LHS parameter sweeps and region augmentation*
+- **Quadrature weights, $d(\mathbf{x})$ refinement & CAD regeneration**: *Tutorial: Quadrature weights, boundary-distance refinement and CAD regeneration sweeps*
+
 
 ## Tutorial: 3D sphere cutaway and volume sampling
 
@@ -2388,6 +2400,43 @@ For parameter comparisons, use `"right": {"parameter": "other_name"}` instead of
 a constant. Read rejected IDs/values/reasons with `inspect_sweep(path)["rejected"]`;
 `iter_sweep_datasets` yields successful accepted outputs only. The full sweep
 example exports all four accepted rows, independently of table search/selection.
+
+#### Quadrature weights, boundary-distance refinement and DataTree bundles in Python
+
+Generate an interior collocation dataset with exponential boundary-layer
+refinement toward the inner circular arcs (`Edge 1`..`Edge 4`), verify its
+importance-corrected quadrature weights and unsigned boundary distances $d(\mathbf{x})$,
+and load an exported sweep as an `xarray.DataTree`:
+
+```python
+import numpy as np
+from jorvik.sampling import sample_geometry
+from jorvik.sweep_container import to_datatree, export_consolidated_sweep, load_consolidated_sweep
+
+refined_request = {
+    key: geometry[key]
+    for key in ("source", "source_hash", "document", "source_format", "import_options")
+}
+refined_request.update(
+    label="refined_interior", target="interior", entities=[],
+    method="sobol", count=256, seed=42, resolution=32,
+    compute_mode="reproducible", cpu_threads=1,
+    refinement={
+        "mode": "boundary_distance",
+        "entities": [[1, 1], [1, 2], [1, 3], [1, 4]],
+        "bias": 6.0, "decay": 0.05, "include_distance": True,
+    },
+)
+refined_batch = sample_geometry(refined_request)
+assert np.isclose(np.sum(refined_batch["weights"]), refined_batch["domain_measure"])
+assert refined_batch["distance_status"] == "available"
+
+# Convert any completed sweep folder into a hierarchical xarray.DataTree or single-file bundle:
+tree = to_datatree(run, require_integrity=True)
+bundle_path = export_consolidated_sweep(run, out / "sweep_bundle.nc", require_integrity=True)
+reloaded_tree = load_consolidated_sweep(bundle_path)
+assert reloaded_tree["regions/inner"].ds["coordinates"].shape == (6, 32, 3)
+```
 
 #### Desktop shortcuts and common tasks
 
