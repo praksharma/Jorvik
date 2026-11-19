@@ -14,7 +14,7 @@ from .graphics import configure_graphics
 from .window_controls import install_window_controls
 from .sampling_panel import SamplingPanel
 from .sampled_areas import SampledAreasTree, area_details
-from .icons import tool_icon
+from .icons import app_icon, tool_icon
 from .cad_import import FILE_FILTER
 from .project_ui import ProjectActions
 from .history import HistoryActions, undoable
@@ -42,6 +42,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.icon_actions = []
         self.items = {}
         self.setWindowTitle("Jorvik — Untitled")
+        self.setWindowIcon(app_icon())
         self.resize(1280, 820)
         self.setMinimumSize(820, 560)
         self.view = Viewport(self)
