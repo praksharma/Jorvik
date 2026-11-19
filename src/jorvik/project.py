@@ -11,8 +11,10 @@ from .cad_import import FORMATS, validate_import_metadata
 from .sampling_methods import METHODS, RESOLUTIONS
 from .topology import validate_topology
 from .regions import validate_regions
-from .export import atomic_write, validate_batch_header, validate_points, validate_tags
+from .export import ARRAY_FIELDS, atomic_write, validate_batch_header, validate_points, validate_tags
 from .normals import validate_normals
+from .weights import validate_weights, validate_tangents
+from .refinement import validate_distances
 
 PROJECT_EXTENSION = ".jorvik"
 PROJECT_EXTENSIONS = (PROJECT_EXTENSION, ".gsproj")
@@ -79,8 +81,13 @@ def save_project(path, geometry, areas, state, *, include_samples=True):
                 raise ValueError('Dataset import metadata differs from project geometry.')
         if status == 'Generating':
             raise ValueError('Wait for generation to finish before saving.')
-        records.append({'area': {k:v for k,v in area.items() if k not in ('coordinates','entity_tags','normals')},
-                        'status':status,'visible':visible,'has_normals':status == 'Generated' and 'normals' in area})
+        rec = {'area': {k:v for k,v in area.items() if k not in ARRAY_FIELDS},
+               'status':status,'visible':visible,'has_normals':status == 'Generated' and 'normals' in area}
+        if status == 'Generated':
+            if 'weights' in area: rec['has_weights'] = True
+            if 'tangents' in area: rec['has_tangents'] = True
+            if 'boundary_distances' in area: rec['has_distances'] = True
+        records.append(rec)
     generated = [area for area, status, _ in areas if status == 'Generated']
     generated_labels, source_identity = set(), None
     for area in generated:
@@ -113,6 +120,18 @@ def save_project(path, geometry, areas, state, *, include_samples=True):
                     if normals is not None:
                         array(f'areas/{i}_normals.npy',normals)
                         del normals
+                    weights = validate_weights(area)
+                    if weights is not None:
+                        array(f'areas/{i}_weights.npy',weights)
+                        del weights
+                    tangents = validate_tangents(area)
+                    if tangents is not None:
+                        array(f'areas/{i}_tangents.npy',tangents)
+                        del tangents
+                    distances = validate_distances(area)
+                    if distances is not None:
+                        array(f'areas/{i}_distances.npy',distances)
+                        del distances
     atomic_write(path,write)
 
 
@@ -211,11 +230,29 @@ def load_project(path):
                 if normals is not None:
                     area['normals'] = normals.tolist()
                     del normals
+                raw_weights = array(f'areas/{i}_weights.npy') if record.get('has_weights') else None
+                raw_tangents = array(f'areas/{i}_tangents.npy') if record.get('has_tangents') else None
+                weights = validate_weights(area, weights=raw_weights, tangents=raw_tangents)
+                del raw_weights
+                if weights is not None:
+                    area['weights'] = weights.tolist()
+                    del weights
+                if raw_tangents is not None:
+                    tangents = validate_tangents(area, tangents=raw_tangents)
+                    del raw_tangents
+                    area['tangents'] = tangents.tolist()
+                    del tangents
+                raw_distances = array(f'areas/{i}_distances.npy') if record.get('has_distances') else None
+                distances = validate_distances(area, distances=raw_distances)
+                del raw_distances
+                if distances is not None:
+                    area['boundary_distances'] = distances.tolist()
+                    del distances
         if manifest.get('samples_omitted'):
             from .sampling_recipe import request_from_area
             for record in manifest['areas']:
                 area = record['area']
-                if any(key in area for key in ('coordinates', 'entity_tags', 'normals', 'normal_planes')):
+                if any(key in area for key in (*ARRAY_FIELDS, 'normal_planes')):
                     raise ValueError('A lightweight project must contain recipes only.')
                 request_from_area(area, geometry)
         # UI state is checked independently and rejected before replacing the workspace.

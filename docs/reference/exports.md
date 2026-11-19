@@ -15,9 +15,13 @@ a failed save preserves an existing file.
 Each label is one float64 coordinate array of shape `(N, 3)`, in `x, y, z` order.
 Different labels have independent point dimensions (`_gs_points_0`, etc.), so
 unequal point counts never produce padding or NaNs. Entity tags are int32 arrays
-with one tag per point. Coordinates retain source geometry units; the importer
-does not currently identify or convert those units. Applicable normals are
-exported as separate numeric arrays. Export is a data snapshot, not a saved editable application project.
+with one tag per point. Coordinates retain source geometry units; STEP and IGES
+files record their detected header units (`mm`, `m`, `in`, etc.) in
+`coordinate_units`, while `.geo` and `.brep` files record
+`unspecified (source CAD units)`. Applicable normals, per-point quadrature
+weights (`_gs_weights_N`), 1D curve tangents (`_gs_tangents_N`), and optional
+unsigned boundary distances (`_gs_boundary_distances_N`) are exported as separate
+numeric coordinate arrays. Export is a data snapshot, not a saved editable application project.
 
 Common identifier labels such as `boundary`, `boundary_1`, and `interior` are
 array names in both formats. Labels containing spaces, punctuation or Unicode,

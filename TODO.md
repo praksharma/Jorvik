@@ -139,7 +139,7 @@ for BREP, STEP and IGES. Start there without introducing a second geometry backe
 - [x] **1. STEP (`.step`, `.stp`)**: first neutral-format implementation; retain
       analytic/curved geometry, original topology and closed-solid definitions.
       A surface STEP and a solid STEP fixture are covered.
-- [ ] Support 2D interior sampling on validated planar STEP sheets, without
+- [x] Support 2D interior sampling on validated planar STEP sheets, without
       requiring a solid volume. Verify coplanarity and trimmed-face containment,
       including inner holes; reject non-planar or ambiguous domains clearly.
       Add rectangle, rotated-plane, trimmed/holey-sheet and non-planar rejection
@@ -160,7 +160,7 @@ for BREP, STEP and IGES. Start there without introducing a second geometry backe
       or assume built-in-kernel scripts can be converted losslessly to STEP.
 - [x] Expose vertices, edges, faces, solids and adjacency consistently in the
       backend model; keep tessellation separate from authoritative CAD geometry.
-- [ ] Detect source units and coordinate scale where available; retain original
+- [x] Detect source units and coordinate scale where available; retain original
       units/metadata and explicitly record any requested conversion.
 - [ ] Support multiple bodies and assembly placements; distinguish disconnected
       solids, open shells and non-manifold geometry before interior sampling.
@@ -213,8 +213,8 @@ are outside the initial release; use the verified neutral export formats instead
 
 ## Later
 
-- [ ] Additional sampling strategies and local density refinement.
-- [ ] Parametric geometry families and stable region tracking.
+- [x] Additional sampling strategies and local density refinement.
+- [x] Parametric geometry families and stable region tracking.
 - [x] Profile generation and add multicore Gmsh/HXT meshing with CPU-core control,
       reproducible fallback, lazy scientific imports and vectorized volume setup.
 - [ ] Cache/reuse geometry preparation and support batch generation.
@@ -260,7 +260,7 @@ are outside the initial release; use the verified neutral export formats instead
       of planar boundary co-normals; preserve frames through projects/exports.
       Legacy samples without frames retain explicit unavailable-normal behaviour.
 - [x] Document density changes after scaling and retain original point counts.
-- [ ] Evaluate surface/volume Jacobian weights for downstream integration.
+- [x] Evaluate surface/volume Jacobian weights for downstream integration.
 
 ### Configuration generation and constraints
 
@@ -284,7 +284,7 @@ are outside the initial release; use the verified neutral export formats instead
 
 - [x] Extend reversible preview to rotation/scaling while keeping original CAD,
       datasets, region assignments, camera and visibility intact.
-- [ ] Extend preview to regenerated CAD geometry when regeneration is implemented.
+- [x] Extend preview to regenerated CAD geometry when regeneration is implemented.
 - [x] Keep parameter edits lightweight: mark stale previews/results and require
       explicit Preview or Process configurations; never auto-run complete sweeps.
 - [x] Preview one selected configuration or export the full generated design in
@@ -308,14 +308,14 @@ are outside the initial release; use the verified neutral export formats instead
 - [x] Store sampling recipes independently of generated output: entity/region/group
       references, target, method, count, seed, accuracy and compute settings;
       GUI save/load with validation and undo/redo, plus Qt-independent JSON APIs.
-- [ ] Define an explicit CAD parameter source (e.g. supported `.geo` variables or
+- [x] Define an explicit CAD parameter source (e.g. supported `.geo` variables or
       a geometry-generation adapter); imported STEP/BREP need not contain editable
       design history or named dimensions.
-- [ ] Regenerate models for radius, width, length and thickness changes and rerun
+- [x] Regenerate models for radius, width, length and thickness changes and rerun
       recipes for every valid configuration; keep this separate from point mapping.
-- [ ] Track entities/regions across regeneration and topology changes; reject
+- [x] Track entities/regions across regeneration and topology changes; reject
       missing, split, merged or ambiguous boundaries until explicitly remapped.
-- [ ] Validate regenerated closed domains, holes and material regions, then
+- [x] Validate regenerated closed domains, holes and material regions, then
       recompute interior points and applicable normals rather than moving only
       boundary points for a dimension change.
 - [ ] Cache reusable preparation keyed by source/configuration/recipe and preserve
@@ -324,10 +324,10 @@ are outside the initial release; use the verified neutral export formats instead
 ### Parametric exports and persistence
 
 - [x] Version the parametric schema independently of ordinary dataset exports.
-- [ ] NetCDF4 backend and xarray DataTree: shared parameter values indexed by
+- [x] NetCDF4 backend and xarray DataTree: shared parameter values indexed by
       configuration, one group per region with coordinates `(configuration, point,
       xyz)`, entity tags, applicable normals and complete recipe/transform metadata.
-- [ ] Use stable safe group/key identifiers plus an original-label map; arbitrary
+- [x] Use stable safe group/key identifiers plus an original-label map; arbitrary
       labels, slashes and reserved names must round-trip without collisions.
 - [x] Write parameter values once per shard and provide streaming sweep readers
       plus `(x,y,z,mu...)` array construction with independent region counts.
@@ -339,7 +339,7 @@ are outside the initial release; use the verified neutral export formats instead
       optional rejection of legacy sweeps without integrity records.
 - [ ] Incremental/chunked disk writes, compression and configurable precision;
       do not assume xarray append mode automatically extends configuration arrays.
-- [ ] Handle varying point counts explicitly through ragged representations or
+- [x] Handle varying point counts explicitly through ragged representations or
       separate configuration groups; never silently pad, truncate or duplicate points.
 - [x] NPZ/NetCDF configuration files plus versioned manifest, scalar plan and result
       journal; stable safe filenames and per-file original region-label maps.
@@ -350,7 +350,7 @@ are outside the initial release; use the verified neutral export formats instead
 - [x] Persist multiple named parameters, transform bindings, units/reference values
       and versioned design definitions in JSON/projects; retain legacy setup support.
 - [x] Persist literal constraints in setup JSON/projects and export provenance.
-- [ ] Extend setup JSON with CAD regeneration recipes.
+- [x] Extend setup JSON with CAD regeneration recipes.
 - [x] Full project persistence for geometry, regions, recipes, generated points and
       translation setup; embed the main CAD source and validate source hashes.
 - [x] Optional point-cloud omission with a separate lightweight project copy,

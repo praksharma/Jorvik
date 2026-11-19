@@ -48,6 +48,16 @@ def validate_setup(setup, batches=None):
         _vector(setup.get('pivot'), 'Pivot')
         if setup.get('order') != ['scale', 'rotate', 'translate'] or setup.get('frame') != 'world':
             raise ValueError('Use scale, rotate, translate order in the world coordinate frame.')
+        if 'geo_parameters' in setup:
+            geo_params = setup['geo_parameters']
+            if (not isinstance(geo_params, list)
+                    or any(not isinstance(item, dict) or not isinstance(item.get('name'), str)
+                           or type(item.get('default')) is bool or type(item.get('default')) not in (int, float)
+                           or not np.isfinite(float(item['default'])) for item in geo_params)):
+                raise ValueError('Invalid .geo parameter declarations in setup.')
+        if 'geo_overrides' in setup:
+            from .cad_regeneration import validate_geo_overrides
+            validate_geo_overrides(setup['geo_overrides'], setup.get('geo_parameters'))
         # Check arithmetic before changing previews, saving setups or writing files.
         _affine_components(setup)
     if 'design' in setup:
@@ -93,16 +103,19 @@ def validate_setup(setup, batches=None):
                 raise ValueError('Selected configuration differs from its parameter design.')
             bindings = expected
         if bindings is not None:
-            from .parameter_design import TARGETS
+            from .parameter_design import TARGETS, is_geo_target
             if not isinstance(bindings, dict) or set(bindings) != set(parameters):
                 raise ValueError('Invalid named parameter bindings.')
             targets = list(bindings.values())
-            if (any(not isinstance(target, str) or target not in TARGETS for target in targets) or len(set(targets)) != len(targets)
+            if (any(not isinstance(target, str) or (target not in TARGETS and not is_geo_target(target)) for target in targets)
+                    or len(set(targets)) != len(targets)
                     or 'uniform_scale' in targets and any(target.startswith('scale_') for target in targets)):
                 raise ValueError('Invalid or overlapping named parameter bindings.')
             for name, target in bindings.items():
                 value = parameters[name]
-                if target.startswith('translation_'):
+                if target.startswith('geo:'):
+                    actual = setup.get('geo_overrides', {}).get(target[4:])
+                elif target.startswith('translation_'):
                     actual = setup['translation']['xyz'.index(target[-1])]
                 elif target.startswith('scale_'):
                     actual = setup['scale']['xyz'.index(target[-1])]
@@ -111,7 +124,7 @@ def validate_setup(setup, batches=None):
                     if any(factor != value for factor in setup['scale']):
                         raise ValueError('Uniform scale parameter differs from the actual transform.')
                     actual = value
-                expected_unit = ('source' if target.startswith('translation_') else
+                expected_unit = ('source' if (target.startswith('translation_') or target.startswith('geo:')) else
                                  setup['angle_units'] if target == 'rotation_angle' else 'dimensionless')
                 if actual != value or units[name] != expected_unit:
                     raise ValueError('Named parameter provenance differs from the actual transform.')
@@ -171,6 +184,9 @@ def preview_payload(setup):
 def transform_batches(batches, setup):
     """Evaluate original points, transporting surface normals and planar co-normals."""
     offset = validate_setup(setup, batches)
+    if setup.get('geo_overrides'):
+        from .cad_regeneration import regenerate_batches
+        batches, _ = regenerate_batches(batches, setup['geo_overrides'])
     linear, offset = _affine_components(setup)
     affine = setup['schema_version'] == 2
     result = []
@@ -185,6 +201,7 @@ def transform_batches(batches, setup):
         if not np.isfinite(transformed).all():
             raise ValueError('Transform produced non-finite coordinates.')
         record['coordinates'] = transformed.tolist()
+        original_normals = None
         if affected and affine and 'normals' in batch:
             from .normals import validate_normals
             original_normals = validate_normals(batch)
@@ -220,6 +237,22 @@ def transform_batches(batches, setup):
                 if not np.isfinite(normals).all() or np.any(lengths == 0):
                     raise ValueError('Transform produced invalid boundary normals.')
                 record['normals'] = (normals / lengths).tolist()
+        if affected and affine and 'weights' in batch:
+            from .weights import transport_weights
+            weight_updates = transport_weights(batch, linear, original_normals=original_normals)
+            for key, val in weight_updates.items():
+                if val is None:
+                    record.pop(key, None)
+                else:
+                    record[key] = val
+        if affected and affine and 'boundary_distances' in batch:
+            from .refinement import transport_distances
+            dist_updates = transport_distances(batch, linear, setup['scope'] == 'domain')
+            for key, val in dist_updates.items():
+                if val is None:
+                    record.pop(key, None)
+                else:
+                    record[key] = val
         record['parametrisation'] = {
             'schema_version': setup['schema_version'], 'operation': 'affine' if affine else 'translation',
             'scope': setup['scope'], 'affected': affected,

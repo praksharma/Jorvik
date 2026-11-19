@@ -260,6 +260,29 @@ def main():
             capture(window, 'method-comparison-grid-vs-sobol')
             panel.point_size.setValue(7)
 
+            # Boundary-distance spatial refinement on the annulus interior
+            window.sampled_areas.items['grid_interior'].setCheckState(
+                0, window.sampled_areas.items['grid_interior'].checkState(0).__class__.Unchecked)
+            panel.target.setCurrentIndex(panel.target.findData('interior'))
+            panel.method.setCurrentIndex(panel.method.findData('sobol'))
+            panel.count.setValue(512)
+            panel.refinement_target.setCurrentIndex(panel.refinement_target.findText('Region: inner'))
+            panel.refinement_bias.setValue(6.0)
+            panel.refinement_decay.setValue(0.05)
+            panel.include_distance.setChecked(True)
+            panel.label.setText('boundary_layer')
+            panel.start(); wait(lambda: panel.process is None)
+            window.sampled_areas.items['boundary_layer'].setExpanded(True)
+            window.sampled_areas.setCurrentItem(window.sampled_areas.items['boundary_layer'])
+            window.sampled_areas.scrollToItem(
+                window.sampled_areas.items['boundary_layer'].child(
+                    window.sampled_areas.items['boundary_layer'].childCount() - 1
+                )
+            )
+            window.sampling_dock.raise_()
+            capture(window, 'boundary-distance-refinement')
+            panel.refinement_target.setCurrentIndex(0)
+
             # 3D sphere tutorial captures: face selection, face context menu, cutaway interior, isolation, and dark theme
             window.confirm_unsaved_changes = lambda *args, **kwargs: True
             window.load_geometry(ROOT / 'examples/geometries/cfdbench/sphere_unstructured.geo')
@@ -367,6 +390,62 @@ def main():
             panel.start(); wait(lambda: panel.process is None)
             window.show_sampled_area('fillet_shell')
             capture(window, 'open-shell-unavailable-normals')
+
+            # Parametric .geo dimensional CAD regeneration design & consolidated sweep bundle export
+            parametric_geo = Path(directory) / 'parametric_annulus.geo'
+            parametric_geo.write_text(
+                'r_in = 0.4;\nr_out = 1.0;\nlc = 0.25;\n'
+                'Point(1) = {0, 0, 0, lc};\nPoint(2) = {r_in, 0, 0, lc};\nPoint(3) = {0, r_in, 0, lc};\n'
+                'Point(4) = {-r_in, 0, 0, lc};\nPoint(5) = {0, -r_in, 0, lc};\n'
+                'Point(6) = {r_out, 0, 0, lc};\nPoint(7) = {0, r_out, 0, lc};\n'
+                'Point(8) = {-r_out, 0, 0, lc};\nPoint(9) = {0, -r_out, 0, lc};\n'
+                'Circle(1) = {2, 1, 3};\nCircle(2) = {3, 1, 4};\nCircle(3) = {4, 1, 5};\nCircle(4) = {5, 1, 2};\n'
+                'Circle(5) = {6, 1, 7};\nCircle(6) = {7, 1, 8};\nCircle(7) = {8, 1, 9};\nCircle(8) = {9, 1, 6};\n'
+                'Curve Loop(1) = {5, 6, 7, 8};\nCurve Loop(2) = {1, 2, 3, 4};\n'
+                'Plane Surface(1) = {1, 2};\n'
+                'Physical Curve("inner", 1) = {1, 2, 3, 4};\n'
+                'Physical Curve("outer", 2) = {5, 6, 7, 8};\n'
+                'Physical Surface("domain", 3) = {1};\n',
+                encoding='utf-8',
+            )
+            window.load_geometry(parametric_geo)
+            wait(lambda: window.import_process is None)
+            window.view.call('orient', 1)
+            panel.target.setCurrentIndex(panel.target.findText('inner (edges)'))
+            panel.method.setCurrentIndex(panel.method.findData('sobol'))
+            panel.count.setValue(128)
+            panel.label.setText('inner')
+            panel.start(); wait(lambda: panel.process is None)
+            panel.target.setCurrentIndex(panel.target.findData('interior'))
+            panel.count.setValue(256)
+            panel.label.setText('interior')
+            panel.start(); wait(lambda: panel.process is None)
+            window.open_parametrisation()
+            cad_dialog = window.parametrisation_dialog
+            cad_dialog.resize(940, 780)
+            cad_design = {
+                'schema_version': 1, 'method': 'cartesian', 'seed': 42, 'count': 6,
+                'parameters': [
+                    {'name': 'hole_radius', 'target': 'geo:r_in', 'mode': 'values',
+                     'values': [0.3, 0.5, 0.7], 'reference': 0.4, 'unit': 'source'},
+                    {'name': 'angle', 'target': 'rotation_angle', 'mode': 'values',
+                     'values': [0.0, 30.0], 'reference': 0.0, 'unit': 'degrees'},
+                ],
+            }
+            cad_dialog.design_panel.apply_design(cad_design)
+            cad_dialog.design_panel.generate()
+            cad_dialog.tabs.setCurrentIndex(1)
+            cad_dialog.tabs.currentWidget().verticalScrollBar().setValue(0)
+            capture(cad_dialog, 'geo-parameter-regeneration-design')
+            cad_dialog.tabs.setCurrentIndex(2)
+            cad_dialog.sweep_panel.consolidated_check.setChecked(True)
+            cad_dialog.sweep_panel.start_export(Path(directory) / 'consolidated-cad-sweep')
+            wait(lambda: not cad_dialog.sweep_panel.running, timeout=60)
+            if cad_dialog.sweep_panel.last_error or cad_dialog.sweep_panel.last_result.get('status') != 'complete':
+                raise RuntimeError(f"Consolidated CAD sweep failed: {cad_dialog.sweep_panel.last_error or cad_dialog.sweep_panel.last_result}")
+            capture(cad_dialog, 'consolidated-sweep-bundle-export')
+            cad_dialog.close()
+            wait(lambda: window.parametrisation_dialog is None)
         finally:
             # This is a disposable example session, so never prompt to save it.
             window.confirm_unsaved_changes = lambda *args, **kwargs: True

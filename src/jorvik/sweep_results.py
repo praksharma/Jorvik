@@ -201,9 +201,15 @@ def iter_sweep_datasets(path, *, allow_partial=False, require_integrity=False):
             batch['coordinates'] = arrays[region['array']]
             batch['entity_tags'] = arrays[region['entity_tags']]
             if 'normals' in region: batch['normals'] = arrays[region['normals']]
+            if 'weights' in region: batch['weights'] = arrays[region['weights']]
+            if 'tangents' in region: batch['tangents'] = arrays[region['tangents']]
+            if 'boundary_distances' in region: batch['boundary_distances'] = arrays[region['boundary_distances']]
             batches.append(batch)
         expected_counts = {item['label']: item['count'] for item in run['manifest']['datasets']}
-        if {item['label']: item['count'] for item in batches} != expected_counts:
+        if setup.get('geo_overrides'):
+            if [item['label'] for item in batches] != [item['label'] for item in run['manifest']['datasets']]:
+                raise ValueError('Dataset labels differ from the sweep manifest.')
+        elif {item['label']: item['count'] for item in batches} != expected_counts:
             raise ValueError('Dataset labels or counts differ from the sweep manifest.')
         checked = to_xarray(batches); checked.close(); del checked
         yield {'id': record['id'], 'parameters': dict(parameters),

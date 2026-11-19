@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 import time
 
-from .export import atomic_write, to_xarray
+from .export import ARRAY_FIELDS, atomic_write, to_xarray
 from .parametrisation import export_configuration, validate_setup
 from .parameter_design import MAX_CONFIGURATIONS
 from .sweep_integrity import file_integrity
@@ -55,7 +55,8 @@ def _prepare(batches, base_setup, configurations, file_format, fail_fast):
                                     else (float(parameter['start']), float(parameter['stop'])))
                 for parameter in definition['parameters']} if definition is not None else None)
     core_fields = ('schema_version', 'scope', 'regions', 'source_hash', 'translation',
-                   'rotation_axis', 'rotation_angle', 'angle_units', 'scale', 'pivot', 'order', 'frame')
+                   'rotation_axis', 'rotation_angle', 'angle_units', 'scale', 'pivot', 'order', 'frame',
+                   'geo_parameters', 'geo_overrides')
     core = {key: value for key, value in base_setup.items() if key in core_fields}
     _json(base_setup)
     identities, plan = set(), []
@@ -90,7 +91,9 @@ def _prepare(batches, base_setup, configurations, file_format, fail_fast):
                 if (isinstance(domain, set) and value not in domain
                         or isinstance(domain, tuple) and not domain[0] <= value <= domain[1]):
                     raise ValueError('Configuration parameter is outside its declared design values.')
-                if target.startswith('translation_'):
+                if target.startswith('geo:'):
+                    expected.setdefault('geo_overrides', {})[target[4:]] = value
+                elif target.startswith('translation_'):
                     expected['translation']['xyz'.index(target[-1])] = value
                 elif target.startswith('scale_'):
                     expected['scale']['xyz'.index(target[-1])] = value
@@ -100,7 +103,7 @@ def _prepare(batches, base_setup, configurations, file_format, fail_fast):
                 raise ValueError('Configuration transform differs from the base setup and declared parameters.')
         else:
             raise ValueError('Sweep export requires a declared parameter design in its base setup.')
-        if any(key in scalar for key in ('coordinates', 'entity_tags', 'normals')):
+        if any(key in scalar for key in ARRAY_FIELDS):
             raise ValueError('Configuration plans must not contain point-cloud arrays.')
         plan.append({'id': identity, 'parameters': record['parameters'], 'setup': scalar,
                      'filename': identity + '.' + file_format})
@@ -119,10 +122,14 @@ def input_fingerprint(batches):
     digest = hashlib.sha256()
     for batch in batches:
         metadata = {key: value for key, value in batch.items()
-                    if key not in ('coordinates', 'entity_tags', 'normals')}
+                    if key not in ARRAY_FIELDS}
         encoded = json.dumps(metadata, sort_keys=True, ensure_ascii=False, allow_nan=False).encode('utf-8')
         digest.update(len(encoded).to_bytes(8, 'little')); digest.update(encoded)
-        for field, dtype in (('coordinates', '<f8'), ('entity_tags', '<i4'), ('normals', '<f8')):
+        fields = [('coordinates', '<f8'), ('entity_tags', '<i4'), ('normals', '<f8')]
+        for extra in ('weights', 'tangents', 'boundary_distances'):
+            if extra in batch:
+                fields.append((extra, '<f8'))
+        for field, dtype in fields:
             digest.update(field.encode('ascii'))
             if field not in batch:
                 digest.update(b'absent'); continue
@@ -189,7 +196,7 @@ def _callbacks(cancelled, progress):
 
 
 def export_sweep(batches, base_setup, configurations, destination, *,
-                 file_format='nc', fail_fast=True, cancelled=None, progress=None):
+                 file_format='nc', fail_fast=True, cancelled=None, progress=None, consolidated=False):
     """Export a generated scalar plan to a new directory and return its manifest.
 
     Cancellation is cooperative between files: the current atomic shard finishes
@@ -199,9 +206,19 @@ def export_sweep(batches, base_setup, configurations, destination, *,
     never changes the viewport or the borrowed original datasets.
     """
     _callbacks(cancelled, progress)
+    if type(consolidated) is not bool:
+        raise ValueError('consolidated must be a boolean.')
     plan = _prepare(batches, base_setup, configurations, file_format, fail_fast)
-    return _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
-                      cancelled, progress, input_fingerprint(batches), {}, None)
+    manifest = _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
+                          cancelled, progress, input_fingerprint(batches), {}, None)
+    if consolidated and manifest['status'] == 'complete':
+        from .sweep_container import export_consolidated_sweep
+        bundle_name = f'sweep_bundle.{file_format}'
+        export_consolidated_sweep(destination, Path(destination) / bundle_name, require_integrity=True)
+        manifest['consolidated_bundle'] = bundle_name
+        manifest['integrity']['consolidated_bundle'] = file_integrity(Path(destination) / bundle_name)
+        _write_json(Path(destination) / 'manifest.json', manifest)
+    return manifest
 
 
 def _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
@@ -212,7 +229,7 @@ def _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
     destination.mkdir()
     manifest_path = destination / 'manifest.json'
     summary = [{key: deepcopy(value) for key, value in batch.items()
-                if key not in ('coordinates', 'entity_tags', 'normals')} for batch in batches]
+                if key not in ARRAY_FIELDS} for batch in batches]
     manifest = {'schema_version': SCHEMA_VERSION, 'kind': 'jorvik_parameter_sweep',
                 'status': 'running', 'format': file_format,
                 'configuration_count': len(plan), 'attempted_count': 0,

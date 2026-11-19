@@ -10,7 +10,7 @@ def copy_records(value):
     def visit(item):
         if isinstance(item, dict):
             for key, child in item.items():
-                if key in ('coordinates', 'entity_tags', 'normals'):
+                if key in ('coordinates', 'entity_tags', 'normals', 'weights', 'tangents', 'boundary_distances'):
                     memo[id(child)] = child
                 else:
                     visit(child)

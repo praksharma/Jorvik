@@ -130,13 +130,27 @@ class ParameterDesignPanel(QWidget):
         if not math.isfinite(value): raise ValueError(f'{name} must be a finite number.')
         return value
 
+    def _available_targets(self):
+        from .parameter_design import TARGETS
+        items = dict(TARGETS)
+        for record in self.base_setup().get('geo_parameters', []):
+            name = record['name']
+            items[f'geo:{name}'] = f'Geo: {name}'
+        return items
+
     def _unit(self, target):
-        if target.startswith('translation_'): return 'source'
+        if target.startswith('translation_') or target.startswith('geo:'): return 'source'
         if target == 'rotation_angle': return self.base_setup().get('angle_units', 'degrees')
         return 'dimensionless'
 
     def _reference(self, target):
         setup = self.base_setup()
+        if target.startswith('geo:'):
+            geo_name = target[4:]
+            for record in setup.get('geo_parameters', []):
+                if record['name'] == geo_name:
+                    return float(record.get('default', record.get('value', 0.0)))
+            return 0.0
         if target.startswith('translation_'): return setup['translation']['xyz'.index(target[-1])]
         if target.startswith('scale_'): return setup['scale']['xyz'.index(target[-1])]
         if target == 'uniform_scale': return setup['scale'][0]
@@ -172,10 +186,12 @@ class ParameterDesignPanel(QWidget):
         return definition
 
     def _append_parameter(self, parameter):
-        from .parameter_design import TARGETS
+        targets = self._available_targets()
+        if parameter['target'] not in targets and parameter['target'].startswith('geo:'):
+            targets[parameter['target']] = f"Geo: {parameter['target'][4:]}"
         row = self.parameters.rowCount(); self.parameters.insertRow(row)
         target = QComboBox()
-        for key, label in TARGETS.items(): target.addItem(label, key)
+        for key, label in targets.items(): target.addItem(label, key)
         target.setCurrentIndex(target.findData(parameter['target']))
         mode = QComboBox(); mode.addItem('Range', 'range'); mode.addItem('Values', 'values')
         mode.setCurrentIndex(mode.findData(parameter['mode']))
@@ -192,19 +208,23 @@ class ParameterDesignPanel(QWidget):
         mode.currentIndexChanged.connect(self._settings_changed)
 
     def add_parameter(self, *_):
-        from .parameter_design import TARGETS
-        if self.parameters.rowCount() >= 8: return
+        targets = self._available_targets()
+        if self.parameters.rowCount() >= max(8, len(targets)): return
         used = {self.parameters.cellWidget(row, 1).currentData() for row in range(self.parameters.rowCount())}
-        available = [key for key in TARGETS if key not in used
+        available = [key for key in targets if key not in used
                      and not (key == 'uniform_scale' and used & {'scale_x', 'scale_y', 'scale_z'})
                      and not (key.startswith('scale_') and 'uniform_scale' in used)]
         if not available: return
         target = available[0]
         reference = float(self._reference(target))
-        low, high = (1., 2.) if 'scale' in target else (0., 1.)
+        if target.startswith('geo:') and reference > 0:
+            low, high = round(reference * 0.5, 6), round(reference * 1.5, 6)
+        else:
+            low, high = (1., 2.) if 'scale' in target else (0., 1.)
         names = {self._text(row, 0) for row in range(self.parameters.rowCount())}
-        name = target; suffix = 1
-        while name in names: name = f'{target}_{suffix}'; suffix += 1
+        base_name = target[4:] if target.startswith('geo:') else target
+        name = base_name; suffix = 1
+        while name in names: name = f'{base_name}_{suffix}'; suffix += 1
         self._building = True
         try:
             self._append_parameter({'name': name, 'target': target, 'mode': 'range',

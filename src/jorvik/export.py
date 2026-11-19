@@ -10,10 +10,13 @@ import xarray as xr
 
 from . import __version__
 from .normals import validate_normals
-from .cad_import import validate_import_metadata
+from .weights import validate_weights, validate_tangents
+from .refinement import validate_distances
+from .cad_import import validate_import_metadata, DEFAULT_UNITS
 
 _PREFIX = '_gs_'
 _RESERVED = {'xyz', 'file', 'allow_pickle', 'like'}
+ARRAY_FIELDS = ('coordinates', 'entity_tags', 'normals', 'weights', 'tangents', 'boundary_distances')
 
 
 def validate_batch_header(batch, labels, source_identity):
@@ -79,7 +82,7 @@ def to_xarray(batches):
                          and not label.startswith(_PREFIX) and label not in _RESERVED) else f'{_PREFIX}region_{index}'
         point_dim = f'{_PREFIX}points_{index}'
         tag_name = f'{_PREFIX}entity_tags_{index}'
-        metadata = {key: value for key, value in batch.items() if key not in ('coordinates', 'entity_tags', 'normals')}
+        metadata = {key: value for key, value in batch.items() if key not in ARRAY_FIELDS}
         metadata_json = json.dumps(metadata, ensure_ascii=False, allow_nan=False)
         variables[name] = xr.DataArray(points, dims=(point_dim, 'xyz'), attrs={
             'label': label, 'method': batch['method'], 'seed': batch['seed'],
@@ -98,9 +101,35 @@ def to_xarray(batches):
             coordinates[normal_name] = xr.DataArray(normals, dims=(point_dim, 'xyz'))
             variables[name].attrs['normals_coordinate'] = normal_name
             record['normals'] = normal_name
+        weights = validate_weights(batch)
+        if weights is not None:
+            if weights is batch['weights']:
+                weights = weights.copy()
+            weight_name = f'{_PREFIX}weights_{index}'
+            coordinates[weight_name] = xr.DataArray(weights, dims=point_dim)
+            variables[name].attrs['weights_coordinate'] = weight_name
+            record['weights'] = weight_name
+        tangents = validate_tangents(batch)
+        if tangents is not None:
+            if tangents is batch['tangents']:
+                tangents = tangents.copy()
+            tangent_name = f'{_PREFIX}tangents_{index}'
+            coordinates[tangent_name] = xr.DataArray(tangents, dims=(point_dim, 'xyz'))
+            variables[name].attrs['tangents_coordinate'] = tangent_name
+            record['tangents'] = tangent_name
+        distances = validate_distances(batch)
+        if distances is not None:
+            if distances is batch['boundary_distances']:
+                distances = distances.copy()
+            distance_name = f'{_PREFIX}boundary_distances_{index}'
+            coordinates[distance_name] = xr.DataArray(distances, dims=point_dim)
+            variables[name].attrs['boundary_distances_coordinate'] = distance_name
+            record['boundary_distances'] = distance_name
         records.append(record)
+    units_set = {b.get('coordinate_units', DEFAULT_UNITS) for b in batches}
+    coord_units = next(iter(units_set)) if len(units_set) == 1 else DEFAULT_UNITS
     manifest = {'schema_version': 2, 'jorvik_version': __version__,
-                'coordinate_units': 'Source geometry units (unspecified)', 'datasets': records}
+                'coordinate_units': coord_units, 'datasets': records}
     return xr.Dataset(variables, coords=coordinates, attrs={
         'schema_version': 2, 'jorvik_version': __version__,
         'coordinate_units': manifest['coordinate_units'],

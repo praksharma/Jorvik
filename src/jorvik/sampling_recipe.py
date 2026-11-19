@@ -4,16 +4,18 @@ import json
 from pathlib import Path
 import re
 from .cad_import import validate_import_metadata
+from .refinement import validate_refinement
 from .sampling_methods import METHODS, RESOLUTIONS
 
 FIELDS = ('target', 'entities', 'method', 'count', 'seed', 'label', 'resolution', 'compute_mode', 'cpu_threads')
 
 
-def _entities(value, *, empty=False):
+def _entities(value, *, empty=False, allow_volumes=False):
     if not isinstance(value, list) or not value and not empty:
         raise ValueError('Recipe needs a non-empty list of faces or edges.')
+    allowed_dims = (1, 2, 3) if allow_volumes else (1, 2)
     if any(not isinstance(item, list) or len(item) != 2 or type(item[0]) is not int
-           or item[0] not in (1, 2) or type(item[1]) is not int or item[1] <= 0 for item in value):
+           or item[0] not in allowed_dims or type(item[1]) is not int or item[1] <= 0 for item in value):
         raise ValueError('Invalid recipe entity references.')
     if len({tuple(item) for item in value}) != len(value) or len({item[0] for item in value}) > 1:
         raise ValueError('Recipe entities must be distinct faces or distinct edges.')
@@ -46,8 +48,8 @@ def validate_settings(settings):
     target = settings.get('target')
     if target not in ('selection', 'group', 'region', 'interior'):
         raise ValueError('Invalid recipe sampling target.')
-    _entities(settings.get('entities'), empty=target == 'interior')
-    if target == 'interior' and settings['entities']:
+    _entities(settings.get('entities'), empty=target == 'interior', allow_volumes=target in ('interior', 'group'))
+    if target == 'interior' and settings['entities'] and any(item[0] != 3 for item in settings['entities']):
         raise ValueError('Interior recipes must not bind boundary entities.')
     if not isinstance(settings.get('method'), str) or settings['method'] not in METHODS:
         raise ValueError('Unknown recipe sampling method.')
@@ -72,7 +74,11 @@ def validate_settings(settings):
             raise ValueError('Recipe boundary-region label or membership is invalid.')
     elif 'region' in settings:
         raise ValueError('Only region recipes can contain a boundary-region reference.')
-    allowed = set(FIELDS) | {'region'}
+    if 'refinement' in settings:
+        if settings['refinement'] is None:
+            raise ValueError('Omit refinement when boundary refinement is disabled.')
+        validate_refinement(settings['refinement'])
+    allowed = set(FIELDS) | {'region', 'refinement'}
     if set(settings) - allowed:
         raise ValueError('Recipes contain settings and references only, without generated point arrays.')
 
@@ -82,10 +88,15 @@ def create_recipe(request):
     defaults = {'resolution': 32, 'compute_mode': 'reproducible', 'cpu_threads': 1}
     try: settings = {key: deepcopy(request[key] if key in request else defaults[key]) for key in FIELDS}
     except KeyError as error: raise ValueError(f'Missing sampling recipe setting: {error.args[0]}') from None
-    if settings['target'] == 'interior': settings['entities'] = []
+    if settings['target'] == 'interior' and not (
+            isinstance(settings.get('entities'), list) and settings['entities']
+            and all(isinstance(e, list) and len(e) == 2 and e[0] == 3 for e in settings['entities'])):
+        settings['entities'] = []
     if settings['target'] == 'region':
         region = request.get('boundary_region', {})
         settings['region'] = {key: deepcopy(region.get(key)) for key in ('label', 'entities')}
+    if request.get('refinement') is not None:
+        settings['refinement'] = validate_refinement(request['refinement'])
     recipe = {'schema_version': 1, 'kind': 'jorvik_sampling_recipe',
               'geometry': {key: deepcopy(request.get(key)) for key in ('source_hash', 'source_format', 'import_options')},
               'sampling': settings}
@@ -121,8 +132,14 @@ def bind_recipe(recipe, geometry, regions=()):
             raise ValueError('Recipe geometry or import settings differ. Open the original geometry/project.')
     settings = deepcopy(recipe['sampling'])
     available = {(entity['dimension'], entity['tag']) for entity in geometry['entities']}
+    if 'topology' in geometry:
+        available |= {(entity['dimension'], entity['tag']) for entity in geometry['topology'] if entity['dimension'] == 3}
     if not {tuple(item) for item in settings['entities']} <= available:
         raise ValueError('Recipe references missing faces or edges.')
+    if 'refinement' in settings:
+        ref_entities = {tuple(item) for item in settings['refinement']['entities']}
+        if not ref_entities <= {(entity['dimension'], entity['tag']) for entity in geometry['entities']}:
+            raise ValueError('Recipe refinement references missing boundary faces or edges.')
     region = settings.pop('region', None)
     if settings['target'] == 'group':
         dimension = settings['entities'][0][0]
@@ -158,17 +175,28 @@ def request_from_area(area, geometry):
     try: settings = {key: deepcopy(area[key] if key in area else defaults[key]) for key in FIELDS}
     except KeyError as error: raise ValueError(f'Missing saved recipe setting: {error.args[0]}') from None
     settings['count'] = area.get('requested_count', settings['count'])
-    if settings['target'] == 'interior': settings['entities'] = []
+    if settings['target'] == 'interior' and not (
+            isinstance(settings.get('entities'), list) and settings['entities']
+            and all(isinstance(e, list) and len(e) == 2 and e[0] == 3 for e in settings['entities'])):
+        settings['entities'] = []
     if settings['compute_mode'] == 'reproducible': settings['cpu_threads'] = 1
     if settings['target'] == 'region':
         snapshot = area.get('boundary_region')
         from .regions import validate_regions
         validate_regions([snapshot], geometry)
         settings['region'] = {key: deepcopy(snapshot[key]) for key in ('label', 'entities')}
+    if area.get('refinement') is not None:
+        settings['refinement'] = validate_refinement(area['refinement'])
     validate_settings(settings)
     available = {(entity['dimension'], entity['tag']) for entity in geometry['entities']}
+    if 'topology' in geometry:
+        available |= {(entity['dimension'], entity['tag']) for entity in geometry['topology'] if entity['dimension'] == 3}
     if not {tuple(entity) for entity in settings['entities']} <= available:
         raise ValueError('Saved recipe references missing faces or edges.')
+    if 'refinement' in settings:
+        ref_entities = {tuple(item) for item in settings['refinement']['entities']}
+        if not ref_entities <= {(entity['dimension'], entity['tag']) for entity in geometry['entities']}:
+            raise ValueError('Saved recipe refinement references missing boundary faces or edges.')
     if settings['target'] == 'group':
         dimension = settings['entities'][0][0]
         tags = {item[1] for item in settings['entities']}

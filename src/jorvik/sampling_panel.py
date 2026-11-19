@@ -5,7 +5,7 @@ import sys
 from .history import undoable
 from PySide6.QtCore import QProcess, Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QComboBox,
-    QSpinBox, QLineEdit, QLabel, QPushButton, QHBoxLayout, QCheckBox, QMessageBox, QSlider, QScrollArea, QLayout)
+    QSpinBox, QDoubleSpinBox, QLineEdit, QLabel, QPushButton, QHBoxLayout, QCheckBox, QMessageBox, QSlider, QScrollArea, QLayout)
 from .sampling_methods import METHODS
 from .recipe_ui import SamplingRecipeActions
 
@@ -68,6 +68,29 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.cpu_threads.setToolTip('Maximum CPU threads for geometry meshing. Some geometry queries and sampling stages remain serial.')
         form.addRow('CPU cores',self.cpu_threads)
         self.compute_mode.currentIndexChanged.connect(self.update_compute_mode)
+        self.refinement_target = QComboBox()
+        self.refinement_target.addItem('None', None)
+        self.refinement_target.setToolTip('Optional reference boundary (saved region or imported 1D/2D group) for unsigned boundary distance d(x) and spatial refinement.')
+        form.addRow('Distance / refinement', self.refinement_target)
+        self.refinement_bias = QDoubleSpinBox()
+        self.refinement_bias.setDecimals(2)
+        self.refinement_bias.setRange(0.0, 10.0)
+        self.refinement_bias.setSingleStep(0.5)
+        self.refinement_bias.setValue(0.0)
+        self.refinement_bias.setToolTip('Boundary refinement bias α ≥ 0. Set α = 0 to keep uniform spatial sampling while computing d(x).')
+        form.addRow('Boundary bias', self.refinement_bias)
+        self.refinement_decay = QDoubleSpinBox()
+        self.refinement_decay.setDecimals(2)
+        self.refinement_decay.setRange(0.01, 10.0)
+        self.refinement_decay.setSingleStep(0.05)
+        self.refinement_decay.setValue(0.15)
+        self.refinement_decay.setToolTip('Decay scale σ / L relative to the domain bounding-box diagonal.')
+        form.addRow('Decay scale', self.refinement_decay)
+        self.include_distance = QCheckBox('Export boundary distance d(x)')
+        self.include_distance.setChecked(True)
+        form.addRow('', self.include_distance)
+        self.refinement_target.currentIndexChanged.connect(self.update_refinement_state)
+        self.update_refinement_state()
         layout.addLayout(form)
         self.note = QLabel()
         self.note.setWordWrap(True)
@@ -128,6 +151,11 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
     def update_compute_mode(self):
         self.cpu_threads.setEnabled(self.process is None and self.compute_mode.currentData()=='multicore')
 
+    def update_refinement_state(self):
+        enabled = self.process is None and self.refinement_target.currentData() is not None
+        for control in (self.refinement_bias, self.refinement_decay, self.include_distance):
+            control.setEnabled(enabled)
+
     def update_note(self):
         text = 'Boundary coordinates follow the original curves/surfaces. Surface trim limits and 3D interiors use numerical geometry.'
         if self.method.currentData() == 'grid':
@@ -149,21 +177,43 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         while self.target.count() > 2:
             self.target.removeItem(2)
         for group in (self.window.geometry['groups'] if self.window.geometry else []):
-            if group['dimension'] in (1, 2):
-                kind = 'edges' if group['dimension'] == 1 else 'faces'
+            if group['dimension'] in (1, 2, 3):
+                kind = 'edges' if group['dimension'] == 1 else ('faces' if group['dimension'] == 2 else 'volumes')
                 name = group['name'] or f"Group {group['tag']}"
                 self.target.addItem(f'{name} ({kind})', {'dimension': group['dimension'], 'tags': group['entities']})
+        if self.window.geometry and self.window.geometry.get('solid_count', 0) > 1:
+            for entity in self.window.geometry.get('topology', []):
+                if entity['dimension'] == 3:
+                    self.target.addItem(f"Volume {entity['tag']}", {'volume_tag': entity['tag']})
         for region in self.window.boundary_regions:
             self.target.addItem('Region: ' + region['label'], {'region_id': region['id']})
         index = next((i for i in range(self.target.count()) if self.target.itemData(i) == current), 0)
         self.target.setCurrentIndex(index)
         self.target.blockSignals(False)
 
+        ref_current = self.refinement_target.currentData()
+        self.refinement_target.blockSignals(True)
+        while self.refinement_target.count() > 1:
+            self.refinement_target.removeItem(1)
+        for group in (self.window.geometry['groups'] if self.window.geometry else []):
+            if group['dimension'] in (1, 2):
+                kind = 'edges' if group['dimension'] == 1 else 'faces'
+                name = group['name'] or f"Group {group['tag']}"
+                self.refinement_target.addItem(f'{name} ({kind})', {'dimension': group['dimension'], 'tags': group['entities']})
+        for region in self.window.boundary_regions:
+            self.refinement_target.addItem('Region: ' + region['label'], {'region_id': region['id']})
+        ref_index = next((i for i in range(self.refinement_target.count()) if self.refinement_target.itemData(i) == ref_current), 0)
+        self.refinement_target.setCurrentIndex(ref_index)
+        self.refinement_target.blockSignals(False)
+        self.update_refinement_state()
+
     def set_busy(self, busy):
         self._recipe_busy = bool(busy)
-        for control in (self.target, self.method, self.count, self.seed, self.label, self.resolution, self.compute_mode, self.cpu_threads):
+        for control in (self.target, self.method, self.count, self.seed, self.label, self.resolution,
+                        self.compute_mode, self.cpu_threads, self.refinement_target):
             control.setEnabled(not busy)
         self.update_compute_mode()
+        self.update_refinement_state()
         self.clear.setEnabled(not busy)
         self.generate.setEnabled(not busy and self.window.geometry is not None)
         self.cancel.setEnabled(busy)
@@ -196,6 +246,8 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
             from .regions import region_snapshot
             snapshot = region_snapshot(self.window.boundary_regions, self.window.geometry, target['region_id'])
             entities, kind = snapshot['entities'], 'region'
+        elif isinstance(target, dict) and 'volume_tag' in target:
+            entities, kind = [[3, target['volume_tag']]], 'interior'
         elif isinstance(target, dict):
             entities = [[target['dimension'], t] for t in target['tags']]
             kind = 'group'
@@ -209,7 +261,7 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
             raise ValueError('Give this dataset a label before generating points.')
         geometry = self.window.geometry
         request = {key: geometry[key] for key in ('source', 'source_hash', 'document')}
-        for key in ('source_format', 'import_options'):
+        for key in ('source_format', 'import_options', 'coordinate_units'):
             if key in geometry:
                 request[key] = geometry[key]
         request.update(target=kind, entities=entities, method=self.method.currentData(),
@@ -218,6 +270,20 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
                        cpu_threads=self.cpu_threads.value() if self.compute_mode.currentData()=='multicore' else 1)
         if snapshot is not None:
             request['boundary_region'] = snapshot
+        ref_target = self.refinement_target.currentData()
+        if isinstance(ref_target, dict):
+            if 'region_id' in ref_target:
+                from .regions import region_snapshot
+                ref_snap = region_snapshot(self.window.boundary_regions, self.window.geometry, ref_target['region_id'])
+                ref_entities = ref_snap['entities']
+            else:
+                ref_entities = [[ref_target['dimension'], t] for t in ref_target['tags']]
+            request['refinement'] = {
+                'entities': ref_entities,
+                'bias': float(self.refinement_bias.value()),
+                'decay': float(self.refinement_decay.value()),
+                'include_distance': bool(self.include_distance.isChecked()),
+            }
         return request
 
     def start(self):

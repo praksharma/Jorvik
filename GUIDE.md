@@ -435,6 +435,123 @@ normals (transformed via the inverse transpose and per-edge parent plane frames)
 are verified automatically before `iter_sweep_datasets` yields the configuration.
 
 
+## Tutorial: Quadrature weights, boundary-distance refinement and CAD regeneration sweeps
+
+Many scientific machine learning architectures—including Deep Ritz, VPINNs,
+weak-form neural operators, hard-constrained boundary networks, and parametric
+shape-optimization surrogates—require more than uniform collocation coordinates.
+Jorvik provides five integrated capabilities for these workflows:
+
+1. **Per-point quadrature / measure weights (`weights`)** summing to the exact
+   1D length, 2D surface area, or 3D volume (`domain_measure`), with exact affine
+   Jacobian weight transport under anisotropic scaling and rotation.
+2. **Unsigned boundary-distance fields ($d(\mathbf{x})$, `boundary_distances`)**
+   and **distance-biased spatial refinement** toward user-selected walls, inlets,
+   or obstacles, with automatic importance-sampling weight correction.
+3. **Topological dimensional CAD regeneration sweeps** over top-level numeric
+   parameters discovered automatically in `.geo` scripts (`Geo: <name>` targets).
+4. **STEP/IGES coordinate unit detection (`coordinate_units`)** and **multi-volume
+   3D subdomain targets** (`Volumes` and 3D `Physical Volume` groups).
+5. **`xarray.DataTree` representation (`to_datatree`)** and single-file
+   **consolidated sweep bundles (`sweep_bundle.nc` / `sweep_bundle.npz`)**.
+
+#### 1. Concentrate interior collocation points near a boundary and export $d(\mathbf{x})$
+
+Suppose you are solving a boundary-layer problem on the 2D annulus
+(`examples/geometries/cfdbench/annulus_unstructured.geo`) where steep gradients
+occur near the inner circular wall ($r = 0.5$), and you also need the exact
+unsigned distance $d(\mathbf{x}) = \min_{\mathbf{y} \in \Gamma_{\text{inner}}} \|\mathbf{x} - \mathbf{y}\|_2$
+for a hard Dirichlet boundary ansatz $\hat{u}(\mathbf{x}) = g(\mathbf{x}) + d(\mathbf{x})\,\mathcal{N}_\theta(\mathbf{x})$:
+
+1. Create or select the `inner` boundary region (`Edge 1` through `Edge 4`, radius $r = 0.5$).
+2. In the **Sampling** pane, set **Target** to **Domain interior**, **Method** to **Sobol**,
+   and **Points / grid budget** to **512**.
+3. Set **Distance / refinement** to **Region: inner** (or the imported `inner (edges)` group).
+4. Set **Boundary bias** ($\alpha$) to **6.0**, **Decay scale** ($\sigma / L$) to **0.05**,
+   keep **Export boundary distance d(x)** checked, enter label `boundary_layer`, and click **Generate samples**.
+
+![Annulus workspace showing 512 boundary-distance-refined interior collocation points concentrated near the inner circular boundary, with Measure and Boundary distance details in Sampled Areas and Properties.](docs/assets/screenshots/boundary-distance-refinement.png)
+
+Jorvik evaluates the exact Euclidean distance $d(\mathbf{x})$ from candidate interior
+points to the reference boundary curves, performs exact acceptance-rejection against
+the unnormalized target density $\rho(\mathbf{x}) = 1 + \alpha \exp(-d(\mathbf{x}) / \sigma)$,
+and importance-corrects the per-point quadrature weights:
+
+$$w_i = |\Omega|\,\frac{1 / \rho(\mathbf{x}_i)}{\sum_{j=1}^N 1 / \rho(\mathbf{x}_j)}, \qquad \sum_{i=1}^N w_i = |\Omega| \approx \pi(1^2 - 0.5^2) \approx 2.35619.$$
+
+Because the weights are importance-corrected by $1/\rho(\mathbf{x}_i)$, Monte Carlo
+quadrature $\sum_{i=1}^N w_i\,\mathcal{L}(\mathbf{x}_i)$ remains an unbiased estimator
+of $\int_\Omega \mathcal{L}(\mathbf{x})\,d\Omega$ even when points are concentrated
+near the wall. Setting **Boundary bias** to `0.0` keeps uniform spatial sampling
+while still computing and exporting `boundary_distances`.
+
+#### 2. Sweep true CAD feature dimensions in `.geo` scripts
+
+Affine scaling stretches an entire domain simultaneously, turning circular holes
+into ellipses. When you instead want to vary an internal geometric feature—such as
+changing the inner hole radius `r_in` while keeping the outer boundary circular at
+`r_out = 1.0`—Jorvik discovers top-level numeric variables in `.geo` scripts
+automatically on import (`geometry["geo_parameters"]`) and exposes them as
+**Geo: &lt;name&gt;** targets in **Parametrisation → Combinations**:
+
+1. Open a parametric `.geo` script containing top-level scalar assignments such as
+   `r_in = 0.4;` and `r_out = 1.0;`, and generate your boundary and interior datasets.
+2. Click **Parametrisation…** and switch to the **Combinations** tab.
+3. Check **Use a parameter design**, click **Add parameter**, and select
+   **Geo: r_in** (`geo:r_in`) in the **Target** column.
+4. Set **Mode** to **Values**, enter `0.3, 0.5, 0.7`, optionally add an affine
+   parameter such as `angle` (**Rotation angle**), and click **Generate configurations**.
+
+![Combinations tab showing a parametric CAD regeneration design binding hole_radius to Geo: r_in alongside rotation angle.](docs/assets/screenshots/geo-parameter-regeneration-design.png)
+
+When you preview or export a configuration that includes `Geo: <name>` parameters:
+
+- Jorvik substitutes the overridden scalar values into the `.geo` script in an
+  isolated temporary workspace without modifying your original `.geo` file on disk.
+- It verifies that the regenerated CAD topology (all 1D/2D/3D entity tags and
+  physical groups) matches the base geometry; if a parameter combination collapses
+  a face or changes entity topology, Jorvik rejects that configuration with a clear
+  topological error.
+- It re-runs each dataset's saved sampling recipe (including boundary normals,
+  measure weights, and boundary distances) on the regenerated CAD model, then
+  applies any composed affine transformation (scale, rotation, translation).
+
+#### 3. Export a single-file consolidated sweep bundle and load it as an `xarray.DataTree`
+
+On the **Processing** tab of **Parametrisation**, check
+**Also write consolidated single-file bundle (sweep_bundle.nc / .npz)** before
+clicking **Export generated design…**.
+
+![Processing tab with the consolidated single-file sweep bundle option enabled after exporting all generated configurations.](docs/assets/screenshots/consolidated-sweep-bundle-export.png)
+
+Alongside the individual `configuration_000001.nc` shards and `manifest.json`,
+Jorvik writes an atomic `sweep_bundle.nc` (or `sweep_bundle.npz`) file and records
+its SHA-256 checksum in `manifest.json`. You can load either the sweep folder or
+the single-file bundle directly into a hierarchical `xarray.DataTree`:
+
+```python
+from jorvik.sweep_container import to_datatree, load_consolidated_sweep
+
+# Load directly from the sweep folder or from sweep_bundle.nc / sweep_bundle.npz
+tree = to_datatree("parameter_sweep", require_integrity=True)
+bundle_tree = load_consolidated_sweep("parameter_sweep/sweep_bundle.nc")
+
+# 1. Inspect parameter values across all configurations: shape (C, P)
+hole_radii = tree["parameters"].ds["hole_radius"].values
+
+# 2. Access stacked region tensors: coordinates (C, N, 3), weights (C, N), normals (C, N, 3)
+inner_ds = tree["regions/inner"].ds
+coords = inner_ds["coordinates"].values      # (C, N_inner, 3)
+weights = inner_ds["weights"].values         # (C, N_inner)
+normals = inner_ds["normals"].values         # (C, N_inner, 3)
+```
+
+If a `.geo` regeneration sweep uses **Regular grid** sampling and produces varying
+point counts across configurations (`uniform_counts == 0`), `to_datatree` and
+`load_consolidated_sweep` automatically organize the tree without padding or
+truncation under `/configurations/<configuration_id>/regions/<safe_key>`.
+
+
 ## Desktop foundation
 
 Drag with the left mouse button to orbit; right-drag to pan; scroll to zoom.
@@ -810,9 +927,13 @@ a failed save preserves an existing file.
 Each label is one float64 coordinate array of shape `(N, 3)`, in `x, y, z` order.
 Different labels have independent point dimensions (`_gs_points_0`, etc.), so
 unequal point counts never produce padding or NaNs. Entity tags are int32 arrays
-with one tag per point. Coordinates retain source geometry units; the importer
-does not currently identify or convert those units. Applicable normals are
-exported as separate numeric arrays. Export is a data snapshot, not a saved editable application project.
+with one tag per point. Coordinates retain source geometry units; STEP and IGES
+files record their detected header units (`mm`, `m`, `in`, etc.) in
+`coordinate_units`, while `.geo` and `.brep` files record
+`unspecified (source CAD units)`. Applicable normals, per-point quadrature
+weights (`_gs_weights_N`), 1D curve tangents (`_gs_tangents_N`), and optional
+unsigned boundary distances (`_gs_boundary_distances_N`) are exported as separate
+numeric coordinate arrays. Export is a data snapshot, not a saved editable application project.
 
 Common identifier labels such as `boundary`, `boundary_1`, and `interior` are
 array names in both formats. Labels containing spaces, punctuation or Unicode,
@@ -1093,9 +1214,18 @@ are invented for open shells or datasets whose normals were unavailable. Invalid
 frames, missing edge mappings or co-normals outside their plane are rejected.
 
 Scaling changes point density per unit length/area/volume, and non-uniform
-scaling can change relative surface density. Exports contain transformed points,
-not Jacobian/integration weights, so downstream integrations need their own
-measure treatment. No point count adjustment or automatic resampling is applied.
+scaling can change relative surface density. Jorvik updates each point's
+quadrature weight (`weights`) and total `domain_measure` using the exact affine
+Jacobian determinant: $|\det \mathbf{A}|$ for 3D volumes, the surface cofactor
+factor $|\det \mathbf{A}|\,\|\mathbf{A}^{-T}\mathbf{n}_i\|_2$ for 2D surfaces,
+and the curve tangent stretch $\|\mathbf{A}\mathbf{t}_i\|_2$ for 1D curves.
+Unsigned boundary distances (`boundary_distances`) scale by $s$ under uniform
+scaling ($s_x = s_y = s_z = s$) and are omitted with an explicit
+`distance_status: "unavailable"` note under anisotropic scaling. No point count
+adjustment or automatic resampling is applied for pure affine transforms; when
+`.geo` script parameters (`geo:<name>`) are bound in a parameter design, Jorvik
+regenerates the CAD geometry and re-runs each dataset's sampling recipe before
+applying the affine transform.
 
 Parameter edits only mark the preview stale. Click **Preview configuration**
 explicitly to update, or process/export directly. Restore, Close and Escape
@@ -1355,13 +1485,14 @@ sampling remains available. Declared solid meshing failures identify open
 boundaries/invalid topology instead of replacing existing sampled datasets.
 
 Files containing faces but no solid volumes can be displayed and sampled on faces
-and edges. Neutral-format interior sampling requires imported solid volumes and
-reports a clear error for surface-only files. No automatic sewing is introduced
-in this importer. This deliberately does not treat a set of cube-shaped surfaces
-as a solid merely because it looks closed. Source units remain unspecified in
-exports; unit detection/conversion, comprehensive assembly metadata and optional
-healing remain roadmap work. Display topology retains zero-length CAD edges with
-an explanatory tooltip, omits their rendering and rejects sampling them.
+and edges, or sampled as 2D planar interiors when all faces are coplanar planar
+sheets (with arbitrary 3D orientation and inner holes). 3D solid interior
+sampling supports the whole domain interior, individual 3D volumes (`Volume <tag>`)
+in multi-volume assemblies, and 3D `Physical Volume` groups. STEP and IGES
+importers detect and record declared length units (`mm`, `cm`, `m`, `in`, `ft`)
+in `coordinate_units` without altering coordinates. Display topology retains
+zero-length CAD edges with an explanatory tooltip, omits their rendering and
+rejects sampling them.
 
 Try the downloaded fixtures under `examples/geometries/cad/`: `t20_data.step`
 (a solid supporting interior sampling), `cylinder.brep` (curved solid),

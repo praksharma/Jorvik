@@ -17,6 +17,7 @@ nav = [
     { "Comparing methods & editing areas" = "guide/tutorial-editing-and-comparison.md" },
     { "Transforms & Cartesian sweeps" = "guide/transforms-and-sweeps.md" },
     { "LHS sweeps, augmentation & PINNs" = "guide/tutorial-parametric-lhs-and-augmentation.md" },
+    { "Weights, refinement & CAD sweeps" = "guide/tutorial-advanced-pinn-workflows.md" },
   ] },
   { "User guide" = [
     { "Workspace and visibility" = "guide/workspace.md" },

@@ -7,6 +7,7 @@ from copy import deepcopy
 from itertools import product
 import math
 import operator
+import re
 
 import numpy as np
 
@@ -19,6 +20,11 @@ TARGETS = {
     'scale_x': 'Scale X', 'scale_y': 'Scale Y', 'scale_z': 'Scale Z',
     'uniform_scale': 'Uniform scale',
 }
+
+
+def is_geo_target(target):
+    return (isinstance(target, str) and target.startswith('geo:')
+            and bool(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', target[4:])))
 METHODS = ('cartesian', 'paired', 'random', 'lhs', 'sobol')
 COMPARISONS = {'<=': operator.le, '<': operator.lt, '>=': operator.ge, '>': operator.gt,
                '==': operator.eq, '!=': operator.ne}
@@ -49,10 +55,14 @@ def _validate_parameter(parameter, method, base_setup):
     name, target = parameter.get('name'), parameter.get('target')
     if not isinstance(name, str) or not name.strip():
         raise ValueError('Every parameter needs a non-empty name.')
-    if not isinstance(target, str) or target not in TARGETS:
+    if not isinstance(target, str) or (target not in TARGETS and not is_geo_target(target)):
         raise ValueError(f'{name}: choose a supported transform target.')
+    if is_geo_target(target) and base_setup is not None and 'geo_parameters' in base_setup:
+        declared = {item['name'] for item in base_setup['geo_parameters']}
+        if target[4:] not in declared:
+            raise ValueError(f'{name}: unknown .geo parameter {target[4:]!r}.')
     unit = parameter.get('unit')
-    if target.startswith('translation_'):
+    if target.startswith('translation_') or is_geo_target(target):
         units = ('source',)
     elif target == 'rotation_angle':
         units = ((base_setup.get('angle_units'),) if base_setup is not None
@@ -202,7 +212,9 @@ def _values(parameter):
 
 
 def _apply_value(setup, target, value):
-    if target.startswith('translation_'):
+    if target.startswith('geo:'):
+        setup.setdefault('geo_overrides', {})[target[4:]] = value
+    elif target.startswith('translation_'):
         setup['translation']['xyz'.index(target[-1])] = value
     elif target == 'rotation_angle':
         setup['rotation_angle'] = value

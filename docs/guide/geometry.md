@@ -84,13 +84,14 @@ sampling remains available. Declared solid meshing failures identify open
 boundaries/invalid topology instead of replacing existing sampled datasets.
 
 Files containing faces but no solid volumes can be displayed and sampled on faces
-and edges. Neutral-format interior sampling requires imported solid volumes and
-reports a clear error for surface-only files. No automatic sewing is introduced
-in this importer. This deliberately does not treat a set of cube-shaped surfaces
-as a solid merely because it looks closed. Source units remain unspecified in
-exports; unit detection/conversion, comprehensive assembly metadata and optional
-healing remain roadmap work. Display topology retains zero-length CAD edges with
-an explanatory tooltip, omits their rendering and rejects sampling them.
+and edges, or sampled as 2D planar interiors when all faces are coplanar planar
+sheets (with arbitrary 3D orientation and inner holes). 3D solid interior
+sampling supports the whole domain interior, individual 3D volumes (`Volume <tag>`)
+in multi-volume assemblies, and 3D `Physical Volume` groups. STEP and IGES
+importers detect and record declared length units (`mm`, `cm`, `m`, `in`, `ft`)
+in `coordinate_units` without altering coordinates. Display topology retains
+zero-length CAD edges with an explanatory tooltip, omits their rendering and
+rejects sampling them.
 
 Try the downloaded fixtures under `examples/geometries/cad/`: `t20_data.step`
 (a solid supporting interior sampling), `cylinder.brep` (curved solid),
