@@ -4,3 +4,4 @@ METHODS = {
     'sobol': 'Sobol', 'halton': 'Halton', 'hammersley': 'Hammersley',
     'stratified': 'Stratified',
 }
+RESOLUTIONS = (16, 32, 64)

@@ -238,8 +238,12 @@ function setSamples(config){
   sampleObjects=[];
   const colors=[0xfff6dc,0x83e5ed,0xb5ef86,0xaabfff,0xffffff];
   for(const [index,batch] of config.batches.entries()){
-    const geometry=new THREE.BufferGeometry();
-    geometry.setAttribute('position',new THREE.Float32BufferAttribute(batch.coordinates.flat(),3));
+    const geometry=new THREE.BufferGeometry(),coordinates=batch.coordinates,positions=new Float32Array(coordinates.length*3);
+    for(let i=0,j=0;i<coordinates.length;i++,j+=3){
+      const point=coordinates[i];
+      positions[j]=point[0];positions[j+1]=point[1];positions[j+2]=point[2];
+    }
+    geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
     const object=new THREE.Points(geometry,new THREE.PointsMaterial({color:colors[index%colors.length],map:pointTexture,alphaTest:0.15,sizeAttenuation:false,depthWrite:false}));
     object.userData.label=batch.label;object.userData.defaultColour=colors[index%colors.length];object.renderOrder=2;
     scene.add(object);sampleObjects.push(object);

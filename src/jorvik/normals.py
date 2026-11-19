@@ -100,21 +100,25 @@ def boundary_normals(gmsh, dimension, points, point_tags, target):
         return _unavailable('Normal orientation could not be verified: ' + str(error))
 
 
-def validate_normals(batch):
+def validate_normals(batch, *, normals=None, tags=None):
     """Reject malformed arrays before exporting or restoring generated datasets."""
-    if 'normal_planes' in batch and 'normals' not in batch:
+    if 'normal_planes' in batch and 'normals' not in batch and normals is None:
         raise ValueError('Parent plane frames have missing boundary normals.')
-    if 'normals' not in batch:
+    if 'normals' not in batch and normals is None:
         if batch.get('normal_status') == 'available':
             raise ValueError('Available boundary normals are missing their numeric array.')
         return None
-    normals = np.asarray(batch['normals'], dtype=float)
-    if (normals.shape != (batch['count'], 3) or not np.isfinite(normals).all()
-            or not np.allclose(np.linalg.norm(normals, axis=1), 1, rtol=1e-6, atol=1e-8)):
+    normals = np.asarray(batch['normals'] if normals is None else normals, dtype=float)
+    if normals.shape != (batch['count'], 3) or not np.isfinite(normals).all():
         raise ValueError('Boundary normals must be finite unit vectors, one per point.')
+    lengths = np.einsum('ij,ij->i', normals, normals)
+    np.sqrt(lengths, out=lengths)
+    if not np.allclose(lengths, 1, rtol=1e-6, atol=1e-8):
+        raise ValueError('Boundary normals must be finite unit vectors, one per point.')
+    del lengths
     if 'normal_planes' in batch:
         planes = batch['normal_planes']
-        tags = np.asarray(batch['entity_tags'])
+        tags = np.asarray(batch['entity_tags'] if tags is None else tags)
         if (batch.get('entity_dimension') != 1 or batch.get('normal_kind') != 'outward_conormal'
                 or not isinstance(planes, dict) or tags.shape != (batch['count'],)
                 or set(planes) != {str(tag) for tag in np.unique(tags)}):

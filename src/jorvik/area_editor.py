@@ -21,7 +21,9 @@ class AreaEditor(QDialog):
         self.count=QSpinBox();self.count.setRange(1,50000);self.count.setValue(area.get('requested_count',area['count']));form.addRow('Points / grid budget',self.count)
         self.seed=QSpinBox();self.seed.setRange(0,2147483647);self.seed.setValue(area['seed']);form.addRow('Seed',self.seed)
         self.resolution=QComboBox()
-        for title,value in [('Standard',32),('Fine',64)]:self.resolution.addItem(title,value)
+        resolutions=[('Standard',32),('Fine',64)]
+        if area.get('resolution')==16:resolutions.insert(0,('Coarse',16))
+        for title,value in resolutions:self.resolution.addItem(title,value)
         self.resolution.setCurrentIndex(max(0,self.resolution.findData(area.get('resolution',32))));form.addRow('Accuracy',self.resolution)
         self.compute=QComboBox();self.compute.addItem('Multicore','multicore');self.compute.addItem('Reproducible','reproducible')
         self.compute.setCurrentIndex(self.compute.findData(area.get('compute_mode','reproducible')));form.addRow('Compute mode',self.compute)
