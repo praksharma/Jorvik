@@ -8,10 +8,11 @@ from pathlib import Path
 import zipfile
 import numpy as np
 from .cad_import import FORMATS, validate_import_metadata
-from .sampling_methods import METHODS
+from .sampling_methods import METHODS, RESOLUTIONS
 from .topology import validate_topology
 from .regions import validate_regions
-from .export import atomic_write, to_xarray
+from .export import atomic_write, validate_batch_header, validate_points, validate_tags
+from .normals import validate_normals
 
 PROJECT_EXTENSION = ".jorvik"
 PROJECT_EXTENSIONS = (PROJECT_EXTENSION, ".gsproj")
@@ -81,8 +82,9 @@ def save_project(path, geometry, areas, state, *, include_samples=True):
         records.append({'area': {k:v for k,v in area.items() if k not in ('coordinates','entity_tags','normals')},
                         'status':status,'visible':visible,'has_normals':status == 'Generated' and 'normals' in area})
     generated = [area for area, status, _ in areas if status == 'Generated']
-    if generated:
-        dataset=to_xarray(generated);dataset.close()
+    generated_labels, source_identity = set(), None
+    for area in generated:
+        _, source_identity, _ = validate_batch_header(area, generated_labels, source_identity)
     manifest={'schema_version':2,'geometry':metadata,'areas':records,'state':state,
               'source_extension':source.suffix.lower()}
     if not include_samples:
@@ -99,10 +101,18 @@ def save_project(path, geometry, areas, state, *, include_samples=True):
                 array(f'geometry/{i}.npy',np.asarray(entity['positions'],dtype=np.float64))
             for i,(area,status,_) in enumerate(areas):
                 if status=='Generated':
-                    array(f'areas/{i}_coordinates.npy',np.asarray(area['coordinates'],dtype=np.float64))
-                    array(f'areas/{i}_tags.npy',np.asarray(area['entity_tags'],dtype=np.int32))
-                    if 'normals' in area:
-                        array(f'areas/{i}_normals.npy',np.asarray(area['normals'],dtype=np.float64))
+                    points = validate_points(area)
+                    array(f'areas/{i}_coordinates.npy',points)
+                    del points
+                    tags = validate_tags(area)
+                    tags_i32 = tags.astype(np.int32, copy=False)
+                    del tags
+                    array(f'areas/{i}_tags.npy',tags_i32)
+                    normals = validate_normals(area, tags=tags_i32)
+                    del tags_i32
+                    if normals is not None:
+                        array(f'areas/{i}_normals.npy',normals)
+                        del normals
     atomic_write(path,write)
 
 
@@ -168,7 +178,7 @@ def load_project(path):
             if points.ndim!=1 or len(points)%3 or not np.isfinite(points).all():
                 raise ValueError('Invalid display coordinates in project.')
             entity['positions']=points.tolist()
-        labels=set();batches=[]
+        labels=set();generated_labels=set();source_identity=None
         for i,record in enumerate(manifest['areas']):
             area=record['area'];label=area['label'];status=record['status']
             validate_import_metadata(area)
@@ -185,15 +195,22 @@ def load_project(path):
             if area['document']!=geometry['document'] or area['source_hash']!=geometry['source_hash']:
                 raise ValueError('Region belongs to another geometry.')
             if status=='Generated':
-                area['coordinates']=array(f'areas/{i}_coordinates.npy').tolist()
-                area['entity_tags']=array(f'areas/{i}_tags.npy').tolist()
+                _, source_identity, _ = validate_batch_header(area, generated_labels, source_identity)
                 if type(record.get('has_normals', False)) is not bool:
                     raise ValueError('Invalid saved normal availability.')
-                if record.get('has_normals'):
-                    area['normals']=array(f'areas/{i}_normals.npy').tolist()
                 if area['entity_dimension'] != 3 and not {tuple(e) for e in area['entities']}<=keys:
                     raise ValueError('Region references missing geometry entities.')
-                batches.append(area)
+                points = validate_points(area, array(f'areas/{i}_coordinates.npy'))
+                area['coordinates'] = points.tolist()
+                del points
+                tags = validate_tags(area, array(f'areas/{i}_tags.npy'))
+                area['entity_tags'] = tags.tolist()
+                raw_normals = array(f'areas/{i}_normals.npy') if record.get('has_normals') else None
+                normals = validate_normals(area, normals=raw_normals, tags=tags)
+                del tags, raw_normals
+                if normals is not None:
+                    area['normals'] = normals.tolist()
+                    del normals
         if manifest.get('samples_omitted'):
             from .sampling_recipe import request_from_area
             for record in manifest['areas']:
@@ -201,8 +218,6 @@ def load_project(path):
                 if any(key in area for key in ('coordinates', 'entity_tags', 'normals', 'normal_planes')):
                     raise ValueError('A lightweight project must contain recipes only.')
                 request_from_area(area, geometry)
-        if batches:
-            dataset=to_xarray(batches);dataset.close()
         # UI state is checked independently and rejected before replacing the workspace.
         state=manifest['state']
         if not {tuple(e) for e in state.get('selection',[])}<=keys:
@@ -257,7 +272,7 @@ def validate_state(geometry, areas, state):
     keys={(e['dimension'],e['tag']) for e in geometry['entities']}
     if isolated is not None and not {tuple(e) for e in isolated}<=keys:raise ValueError('Invalid isolated geometry.')
     controls=state['controls']
-    if controls['method'] not in METHODS or controls['compute_mode'] not in ('multicore','reproducible') or controls['resolution'] not in (32,64):
+    if controls['method'] not in METHODS or controls['compute_mode'] not in ('multicore','reproducible') or controls['resolution'] not in RESOLUTIONS:
         raise ValueError('Invalid saved sampling settings.')
     for field,low,high in [('count',1,50000),('seed',0,2147483647),('cpu_threads',1,64)]:
         if type(controls[field]) is not int or not low<=controls[field]<=high:raise ValueError('Invalid sampling '+field)

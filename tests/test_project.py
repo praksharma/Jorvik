@@ -47,3 +47,6 @@ class ProjectTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'point size'):load_project(path)
             with zipfile.ZipFile(path,'w') as archive:archive.writestr('manifest.json',json.dumps({'schema_version':99}))
             with self.assertRaisesRegex(ValueError,'version'):load_project(path)
+            coarse=state();coarse['controls']['resolution']=16
+            save_project(path,geometry,[(batch,'Generated',True)],coarse)
+            self.assertEqual(load_project(path)[0]['state']['controls']['resolution'],16)

@@ -96,3 +96,35 @@ class SamplingTest(unittest.TestCase):
             geometry={**self.annulus,'source':str(path)}
             with self.assertRaisesRegex(ValueError,'changed'):self.sample(geometry)
         with self.assertRaisesRegex(ValueError,'settings'):self.sample(self.annulus,count=0)
+
+    def test_adaptive_surface_envelope_refinement_and_singularity_rejection(self):
+        from unittest.mock import patch
+        import gmsh
+        from jorvik.sampling import _surface_samples, _jacobian
+        gmsh.initialize(['jorvik'], readConfigFiles=False)
+        try:
+            gmsh.option.setNumber('General.Terminal', 0)
+            gmsh.open(str(FIXTURES / 'sphere_unstructured.geo'))
+            gmsh.option.setNumber('Mesh.ElementOrder', 1)
+            gmsh.model.mesh.generate(2)
+            gmsh.model.mesh.setOrder(1)
+            calls = {'n': 0}
+            def underestimated_then_valid(g, tag, uv):
+                val = _jacobian(g, tag, uv)
+                calls['n'] += 1
+                # First call is initial 4-point triangle probe: underestimate by 4x
+                return val * 0.25 if calls['n'] == 1 else val
+            with patch('jorvik.sampling._jacobian', side_effect=underestimated_then_valid):
+                points, tags, _ = _surface_samples(gmsh, [1], 'sobol', 64, 42)
+            self.assertEqual(len(points), 64)
+            self.assertEqual(set(tags.tolist()), {1})
+            # Persistent blow-up must still fail after bounded envelope refinements
+            def blowing_up(g, tag, uv):
+                calls['n'] += 1
+                return _jacobian(g, tag, uv) * (10.0 ** calls['n'])
+            calls['n'] = 0
+            with patch('jorvik.sampling._jacobian', side_effect=blowing_up):
+                with self.assertRaisesRegex(ValueError, 'Surface curvature exceeded'):
+                    _surface_samples(gmsh, [1], 'sobol', 64, 42)
+        finally:
+            gmsh.finalize()

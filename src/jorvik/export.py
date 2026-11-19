@@ -16,6 +16,46 @@ _PREFIX = '_gs_'
 _RESERVED = {'xyz', 'file', 'allow_pickle', 'like'}
 
 
+def validate_batch_header(batch, labels, source_identity):
+    validate_import_metadata(batch)
+    label = batch['label']
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError('Each dataset must have a non-empty label.')
+    if label in labels:
+        raise ValueError(f'Duplicate dataset label: {label}')
+    labels.add(label)
+    identity = (batch['document'], batch['source_hash'])
+    if source_identity is not None and identity != source_identity:
+        raise ValueError('Datasets must belong to the same source geometry.')
+    dimension = batch['entity_dimension']
+    if dimension not in (1, 2, 3):
+        raise ValueError(f'{label}: point entity tags do not match the target entities.')
+    return label, identity, dimension
+
+
+def validate_points(batch, points=None):
+    label = batch['label']
+    points = np.asarray(batch['coordinates'] if points is None else points, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 3 or not len(points) or not np.isfinite(points).all():
+        raise ValueError(f'{label}: coordinates must be a finite, non-empty N×3 array.')
+    if len(points) != batch['count']:
+        raise ValueError(f'{label}: point count does not match coordinates.')
+    return points
+
+
+def validate_tags(batch, tags=None):
+    label = batch['label']
+    dimension = batch['entity_dimension']
+    tags = np.asarray(batch['entity_tags'] if tags is None else tags)
+    if tags.shape != (batch['count'],) or not np.issubdtype(tags.dtype, np.integer):
+        raise ValueError(f'{label}: each point needs an integer entity tag.')
+    if (tags <= 0).any() or (tags > np.iinfo(np.int32).max).any():
+        raise ValueError(f'{label}: entity tags are outside the supported range.')
+    if dimension not in (1, 2, 3) or not set(np.unique(tags).tolist()) <= {t for d, t in batch['entities'] if d == dimension}:
+        raise ValueError(f'{label}: point entity tags do not match the target entities.')
+    return tags
+
+
 def to_xarray(batches):
     """One N×3 data variable per label, with independent point dimensions.
 
@@ -29,48 +69,33 @@ def to_xarray(batches):
     labels, records = set(), []
     source_identity = None
     for index, batch in enumerate(batches):
-        validate_import_metadata(batch)
-        label = batch['label']
-        if not isinstance(label, str) or not label.strip():
-            raise ValueError('Each dataset must have a non-empty label.')
-        if label in labels:
-            raise ValueError(f'Duplicate dataset label: {label}')
-        labels.add(label)
-        identity = (batch['document'], batch['source_hash'])
-        if source_identity is not None and identity != source_identity:
-            raise ValueError('Datasets must belong to the same source geometry.')
-        source_identity = identity
-        points = np.asarray(batch['coordinates'], dtype=np.float64)
-        tags = np.asarray(batch['entity_tags'])
-        if points.ndim != 2 or points.shape[1] != 3 or not len(points) or not np.isfinite(points).all():
-            raise ValueError(f'{label}: coordinates must be a finite, non-empty N×3 array.')
-        if len(points) != batch['count']:
-            raise ValueError(f'{label}: point count does not match coordinates.')
-        if tags.shape != (len(points),) or not np.issubdtype(tags.dtype, np.integer):
-            raise ValueError(f'{label}: each point needs an integer entity tag.')
-        if (tags <= 0).any() or (tags > np.iinfo(np.int32).max).any():
-            raise ValueError(f'{label}: entity tags are outside the supported range.')
-        dimension = batch['entity_dimension']
-        if dimension not in (1, 2, 3) or not set(tags.tolist()) <= {t for d, t in batch['entities'] if d == dimension}:
-            raise ValueError(f'{label}: point entity tags do not match the target entities.')
+        label, source_identity, dimension = validate_batch_header(batch, labels, source_identity)
+        points = validate_points(batch)
+        if points is batch['coordinates']:
+            points = points.copy()
+        tags = validate_tags(batch)
+        tags_i32 = tags.astype(np.int32, copy=tags is batch['entity_tags'])
         name = label if (re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', label)
                          and not label.startswith(_PREFIX) and label not in _RESERVED) else f'{_PREFIX}region_{index}'
         point_dim = f'{_PREFIX}points_{index}'
         tag_name = f'{_PREFIX}entity_tags_{index}'
         metadata = {key: value for key, value in batch.items() if key not in ('coordinates', 'entity_tags', 'normals')}
         metadata_json = json.dumps(metadata, ensure_ascii=False, allow_nan=False)
-        variables[name] = xr.DataArray(points.copy(), dims=(point_dim, 'xyz'), attrs={
+        variables[name] = xr.DataArray(points, dims=(point_dim, 'xyz'), attrs={
             'label': label, 'method': batch['method'], 'seed': batch['seed'],
             'entity_dimension': dimension, 'entity_tags_coordinate': tag_name,
             'metadata_json': metadata_json})
-        coordinates[tag_name] = xr.DataArray(tags.astype(np.int32), dims=point_dim,
+        coordinates[tag_name] = xr.DataArray(tags_i32, dims=point_dim,
                                             attrs={'entity_dimension': dimension})
         record = {'label': label, 'array': name, 'point_dimension': point_dim,
                   'entity_tags': tag_name, 'metadata': metadata}
-        normals = validate_normals(batch)
+        normals = validate_normals(batch, tags=tags_i32)
+        del tags
         if normals is not None:
+            if normals is batch['normals']:
+                normals = normals.copy()
             normal_name = f'{_PREFIX}normals_{index}'
-            coordinates[normal_name] = xr.DataArray(normals.copy(), dims=(point_dim, 'xyz'))
+            coordinates[normal_name] = xr.DataArray(normals, dims=(point_dim, 'xyz'))
             variables[name].attrs['normals_coordinate'] = normal_name
             record['normals'] = normal_name
         records.append(record)
