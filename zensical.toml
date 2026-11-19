@@ -10,6 +10,14 @@ site_dir = "site"
 nav = [
   { "Overview" = "index.md" },
   { "Get started" = "guide/getting-started.md" },
+  { "Tutorials" = [
+    { "2D annulus first dataset" = "guide/getting-started.md" },
+    { "3D sphere cutaway & volume" = "guide/tutorial-3d-sphere.md" },
+    { "STEP & BREP CAD workflows" = "guide/tutorial-cad-workflows.md" },
+    { "Comparing methods & editing areas" = "guide/tutorial-editing-and-comparison.md" },
+    { "Transforms & Cartesian sweeps" = "guide/transforms-and-sweeps.md" },
+    { "LHS sweeps, augmentation & PINNs" = "guide/tutorial-parametric-lhs-and-augmentation.md" },
+  ] },
   { "User guide" = [
     { "Workspace and visibility" = "guide/workspace.md" },
     { "Geometry and selection" = "guide/geometry.md" },

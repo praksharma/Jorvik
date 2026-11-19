@@ -99,6 +99,342 @@ sets up the next generation. If its label is already in use, Generate creates a
 new numbered label. Use **Edit → Undo/Redo** to undo or restore a recipe load.
 
 
+## Tutorial: 3D sphere cutaway and volume sampling
+
+This tutorial walks through a complete 3D boundary and tetrahedral volume sampling
+workflow in the GUI using `examples/geometries/cfdbench/sphere_unstructured.geo`.
+You will select curved 3D surface patches, hide front faces to create an interior
+cutaway view, sample both the exterior shell and the 3D volume interior using
+multicore meshing, isolate a single dataset with its geometric context, and
+switch between light and dark themes.
+
+#### 1. Open the 3D sphere and inspect surface patches
+
+Choose **File → Open Geometry…** and select
+`examples/geometries/cfdbench/sphere_unstructured.geo`. Ensure the camera selector
+in the top toolbar is set to **Isometric** and click **Select faces** (`F`).
+Click **Face 1**, then hold `Ctrl` (or `Shift`) and click **Face 2** and **Face 3**
+in the 3D viewport (or in the **Faces** branch of the left-hand geometry tree).
+Switch to the **Properties** tab on the right dock to inspect the selected surface
+patches and their imported physical group memberships.
+
+![3D sphere in isometric view with three front surface patches selected in orange and their entity metadata displayed in Properties.](docs/assets/screenshots/sphere-faces-selected.png)
+
+Each octant of the sphere is a single selectable CAD face regardless of how many
+display triangles Gmsh used to render it. Hovering over unselected faces highlights
+them in teal; selected faces appear in orange.
+
+#### 2. Hide front faces to create a 3D cutaway view
+
+When working with closed 3D solids, front surfaces can obscure interior point
+clouds. Right-click any of the selected faces in the left-hand **Geometry** tree
+to open the face visibility context menu, then click **Hide selected faces**.
+
+![Geometry tree context menu showing Hide selected faces, Isolate selected faces and Show all faces.](docs/assets/screenshots/sphere-face-context-menu.png)
+
+Hiding faces removes only their shaded triangles from the 3D viewport so you can
+peer directly inside the hollow shell. Original CAD edges remain visible unless
+you toggle **Edges** off in the toolbar, and hidden faces remain selectable in the
+tree at any time.
+
+#### 3. Sample the curved boundary and 3D tetrahedral interior
+
+Select the five remaining visible back-shell faces (**Face 4** through **Face 8**)
+in the tree or viewport, switch to the **Sampling** tab on the right dock, and
+generate a curved surface dataset:
+
+1. Set **Target** to **Selected faces / edges**.
+2. Choose **Method → Sobol**, set **Points / grid budget** to **256**, and **Seed** to **42**.
+3. Enter `back_shell` as the **Dataset label** and click **Generate samples**.
+
+Next, sample the 3D solid interior without clearing the surface points:
+
+1. Change **Target** to **Domain interior**.
+2. Choose **Method → Hammersley** and set **Points / grid budget** to **512**.
+3. Keep **Compute mode → Multicore** (which uses Gmsh's parallel 3D HXT tetrahedral mesher).
+4. Enter `volume_interior` as the **Dataset label** and click **Generate samples**.
+
+![3D sphere cutaway showing 256 Sobol surface samples on the back shell and 512 Hammersley tetrahedral volume samples inside the sphere.](docs/assets/screenshots/sphere-hidden-faces-interior.png)
+
+Because **Show points through geometry** is checked in the Sampling pane, interior
+points remain visible even behind shaded surfaces. Under **Sampled Areas**, notice
+that `back_shell` reports `Normals: available` (verified via tetrahedral containment
+probes on the built-in Gmsh volume), whereas `volume_interior` reports
+`Normals: not_applicable` because interior volume points have no outward boundary normal.
+
+#### 4. Isolate a single dataset with its CAD geometry context
+
+When a project accumulates several boundary and interior datasets, you can focus
+on one dataset at a time without losing or hiding the others permanently:
+
+1. Click `back_shell` in the **Sampled Areas** tree.
+2. Click **Isolate region** in the top toolbar (or right-click `back_shell` → **Isolate region**).
+3. Click **Geometry in isolation** beside it in the toolbar to display only the
+   CAD faces and boundary edges belonging to `back_shell`.
+
+![Viewport isolating the back_shell dataset together with its five constituent CAD surface patches and their boundary edges.](docs/assets/screenshots/region-isolation-context.png)
+
+Toggling **Isolate region** off immediately restores your previous face visibility
+and shows all checked datasets again. Isolation is purely a display filter:
+**Export samples…** always exports every generated dataset in the workspace.
+
+#### 5. Switch to the dark theme and tune point markers
+
+Choose **View → Appearance → Dark** from the menu bar and drag the **Point size**
+slider in the **Sampling** pane to **8 px**. Click **Show all faces** in the
+geometry tree context menu to restore the complete sphere.
+
+![Jorvik dark theme showing the full 3D sphere with outlined 8-pixel boundary and interior sample markers.](docs/assets/screenshots/dark-theme-workspace.png)
+
+Every sample marker is rendered with a high-contrast dark rim around a coloured
+disc so points remain legible against both light and dark canvases as well as
+orange selection highlights. Your chosen theme and marker size persist
+automatically across application launches.
+
+
+## Tutorial: Neutral CAD workflows with STEP and BREP
+
+In realistic scientific ML pipelines, geometries often originate in mechanical CAD
+systems and are exchanged as neutral **STEP** (`.step`, `.stp`), **Open CASCADE BREP**
+(`.brep`), or **IGES** (`.iges`, `.igs`) files. This tutorial demonstrates how
+Jorvik imports topology-preserving neutral CAD fixtures from
+`examples/geometries/cad/`, verifies outward normals on curved solids, and detects
+open surface shells and degenerate edges.
+
+#### 1. Sample a 3D STEP solid with curved B-spline faces
+
+Choose **File → Open Geometry…** and select `examples/geometries/cad/t20_data.step`.
+Jorvik imports the file through Open CASCADE (`gmsh.model.occ.importShapes`),
+preserving its closed 3D solid volume (`Volume 1`) alongside its 18 B-spline
+boundary faces and 38 curves.
+
+1. In **Select faces** (`F`) mode, click **Face 1** and `Ctrl`-click **Face 2** on the top annular rim.
+2. In **Sampling**, choose **Target → Selected faces / edges**, **Method → Latin hypercube (LHS)**, **Points → 160**, enter `step_faces`, and click **Generate samples**.
+3. Change **Target** to **Domain interior**, choose **Method → Sobol**, set **Points → 320**, enter `step_interior`, and click **Generate samples**.
+
+![Imported 3D STEP solid t20_data.step showing 160 LHS surface samples on the top rim faces and 320 Sobol interior volume samples.](docs/assets/screenshots/step-solid-imported.png)
+
+Both datasets record `source_format: "step"` and the exact Open CASCADE loader
+options in their provenance metadata, ensuring that any subsequent recipe reload
+or project save verifies that the STEP file and importer settings have not changed.
+
+#### 2. Verify outward surface normals on an Open CASCADE BREP cylinder
+
+Choose **File → Open Geometry…** and open `examples/geometries/cad/cylinder.brep`.
+This native Open CASCADE B-Rep model contains one cylindrical lateral surface
+(`Face 1 · Cylinder`) and two planar end caps (`Face 2 · Plane`, `Face 3 · Plane`)
+enclosing a single solid volume.
+
+1. Select `Face 1 · Cylinder`, click **Boundary regions…**, name the region `curved_wall`, and click **Save region** and **Close**.
+2. In **Sampling**, select **Target → Region: curved_wall**, choose **Method → Halton**, set **Points → 192**, enter `curved_wall`, and click **Generate samples**.
+3. Switch **Target** to **Domain interior**, choose **Method → Stratified**, set **Points → 256**, enter `cylinder_interior`, and click **Generate samples**.
+4. Click `curved_wall` in **Sampled Areas** to view its full metadata in **Properties**.
+
+![Open CASCADE BREP cylinder with 192 Halton samples on the curved wall, 256 Stratified interior samples, and Properties confirming CAD containment-verified outward normals.](docs/assets/screenshots/brep-cylinder-normals.png)
+
+Because `cylinder.brep` is an Open CASCADE solid and `Face 1` bounds exactly one
+3D volume, Jorvik evaluates exact analytic surface normals from the parametric
+derivatives and verifies outward orientation at every point using
+`CAD containment probes` (`gmsh.model.isInside`).
+
+#### 3. Inspect open surface shells and degenerate CAD edges
+
+Not every STEP or IGES file defines a closed 3D solid; many CAD exports contain
+unsewn surface shells or degenerate zero-length seams (such as pole singularities
+on spherical fillets). Choose **File → Open Geometry…** and open
+`examples/geometries/cad/cube_filet.stp`.
+
+1. Select `Face 1 · Cylinder` and generate **128** **Uniform random** samples with the label `fillet_shell`.
+2. Click `fillet_shell` in **Sampled Areas** to inspect its **Properties** report.
+
+![Open surface STEP model cube_filet.stp showing 128 boundary samples on a filleted face and Properties explaining why outward normals are unavailable on an open shell.](docs/assets/screenshots/open-shell-unavailable-normals.png)
+
+Notice two protective behaviours on open shells:
+
+- **No guessed interior**: If you select **Target → Domain interior** on `cube_filet.stp`
+  (or `cube1000.igs`), Jorvik rejects interior generation with a clear error message
+  because the file contains surface shells only (`solid_count: 0`). Jorvik never
+  silently treats an open 3D surface shell as a 2D planar domain.
+- **No guessed outward normals**: Because `Face 1` has no upward 3D parent solid,
+  outward versus inward surface orientation is undefined. Jorvik sets
+  `Normals: unavailable` and records the exact reason (`Open or shared boundary:
+  exactly one parent domain is required for an outward normal`) rather than
+  exporting unverified normal vectors.
+- **Degenerate edge protection**: Zero-length CAD edges in `cube_filet.stp` remain
+  visible in the **Edges** tree with a descriptive tooltip so topological adjacency
+  stays complete, but attempting to sample a zero-length edge is rejected cleanly.
+
+#### 4. Summary of CAD domain classifications and normal availability
+
+| Imported CAD Geometry | `interior_domain` | Boundary Sampling | Interior Sampling | Outward Boundary Normals |
+| --- | --- | --- | --- | --- |
+| Closed 3D solid (`.geo`, `.step`, `.brep`, `.igs`) | `solid` | 1D edges & 2D faces | 3D tetrahedral volume | `outward_surface` on faces bounding 1 solid (`unavailable` on 3D edges or internal interfaces) |
+| Coplanar 2D planar domain (`.geo` analytic planes) | `planar` | 1D edges & 2D faces | 2D planar surface | `outward_conormal` in the parent plane on edges bounding 1 face |
+| Open 3D shell or non-planar surfaces (`cube_filet.stp`, `cube1000.igs`) | `open_or_nonplanar` | 1D edges & 2D faces | Rejected with explanation | `unavailable` (reason recorded in dataset metadata) |
+
+
+## Tutorial: Comparing sampling methods and editing areas
+
+Choosing the right spatial distribution—and refining individual regional point
+counts without rebuilding an entire workspace—is central to PINN and surrogate-model
+experiments. This tutorial shows how to compare Jorvik's seven sampling algorithms
+side by side, edit and regenerate an existing dataset in place with **Edit…**, and
+use session **Undo / Redo**.
+
+#### 1. Compare structured grids against quasi-Monte Carlo sequences
+
+Starting from the annulus workspace (`examples/geometries/cfdbench/annulus_unstructured.geo`)
+with `inner` (128 Sobol boundary points) and `interior` (512 Sobol interior points):
+
+1. In **Sampling**, keep **Target → Domain interior**, change **Method** to **Regular grid**, set **Points / grid budget** to **256**, enter `grid_interior`, and click **Generate samples**.
+2. Uncheck `interior` in **Sampled Areas** so only `inner` and `grid_interior` are displayed, and set **Point size** to **9 px**.
+
+![Viewport comparing a clipped regular parameter grid in the annulus interior against low-discrepancy Sobol points on the inner boundary.](docs/assets/screenshots/method-comparison-grid-vs-sobol.png)
+
+Notice that `grid_interior` contains **148** points from the **256**-point budget:
+**Regular grid** constructs a complete $16 \times 16$ Cartesian lattice across the
+surface parameter bounding box and clips out candidates that fall inside the central
+hole or outside the outer radius. By contrast, the six stochastic and quasi-random
+methods always return the exact requested point count (`512`).
+
+#### 2. When to choose each of the seven sampling methods
+
+| Method | Deterministic or Seeded | Exact Point Count | Best Suited For | Key Mathematical Property |
+| --- | --- | --- | --- | --- |
+| **Uniform random** | Seeded (`np.random.default_rng`) | Yes | Baseline Monte Carlo batches and quick previews | Independent and identically distributed unit-cube draws |
+| **Regular grid** | Deterministic (seed unused) | Clipped to domain ($\le$ budget) | Structured parameter-space lattices and finite-difference comparisons | Complete Cartesian layers in curve/surface/bounding-box parameters |
+| **Latin hypercube (LHS)** | Seeded (`scipy.stats.qmc.LatinHypercube`) | Yes | Ensuring every 1D marginal interval is represented | 1D marginal stratification in the unit candidate cube |
+| **Sobol** | Seeded scrambled base-2 (`scipy.stats.qmc.Sobol`) | Yes (strongest at $2^k$ counts) | Low-discrepancy interior and boundary collocation points | Digital $(t, m, s)$-net balance in candidate space |
+| **Halton** | Seeded scrambled (`scipy.stats.qmc.Halton`) | Yes | Low-discrepancy sampling at arbitrary non-power-of-two counts | Coprime radical-inverse bases across candidate dimensions |
+| **Hammersley** | Seeded random shift + radical inverse | Yes | Fixed-size low-discrepancy point sets with uniform first axis | Equispaced $(i + 0.5)/N$ first coordinate paired with radical inverses |
+| **Stratified** | Seeded recursive binary partition | Yes | Guaranteeing one sample per equal-volume candidate box | Recursive longest-axis split into $N$ equal-measure candidate strata |
+
+#### 3. Edit and regenerate an existing area in place
+
+To change a dataset's method, point count, accuracy, or target entities without
+deleting it and losing its colour, visibility, or transform bindings, right-click
+`inner` in **Sampled Areas** and choose **Edit…**.
+
+![Edit sampled area dialog configured to regenerate the inner boundary with 256 Latin hypercube points at Fine geometry accuracy.](docs/assets/screenshots/area-editor-dialog.png)
+
+In the **Edit sampled area** dialog:
+
+1. Change **Method** to **Latin hypercube (LHS)**.
+2. Increase **Points / grid budget** to **256** and change **Seed** to **99**.
+3. Switch **Accuracy** from **Standard** (`32`) to **Fine** (`64`).
+4. Review the checked constituent entities (`Edge 1` through `Edge 4`), then click **Regenerate area**.
+
+Replacement is atomic: while the background worker runs, the original 128-point
+`inner` dataset remains in memory. If you cancel generation or if an error occurs,
+the original points, label, and colour are preserved untouched. Once generation
+succeeds, the updated 256-point cloud replaces `inner` in place and retains its
+swatch colour and visibility state.
+
+#### 4. Duplicate datasets and navigate the 30-step Undo/Redo history
+
+- **Duplicate without resampling**: Right-click any generated dataset and choose
+  **Duplicate dataset** to create an instant copy (`inner_1`) that shares the
+  underlying immutable coordinate and normal buffers while allowing independent
+  renaming, colour changes, or region-scoped transform experiments.
+- **Undo and Redo**: Choose **Edit → Undo** (`Ctrl+Z`) or **Edit → Redo**
+  (`Ctrl+Shift+Z` / `Ctrl+Y`) to step backward and forward through the last 30
+  workspace edits—including generation, in-place area regeneration, recipe loading,
+  renaming, colour changes, dataset deletion, clearing, boundary-region edits, and
+  saved transform setups—without re-running Gmsh.
+
+
+## Tutorial: LHS parameter sweeps and region augmentation
+
+Beyond Cartesian grids of transformation values, Jorvik supports space-filling
+**Latin hypercube (LHS)**, **Sobol**, and **Seeded random** parameter designs,
+parameter-to-parameter inequality constraints, and selected-region augmentation.
+This tutorial demonstrates those workflows in the **Parametrisation** workspace and
+shows how to stream the exported sweep shards directly into a downstream PINN or
+scientific machine learning training loop.
+
+#### 1. Compare whole-domain transforms with selected-region augmentation
+
+With `inner` and `interior` generated on the annulus, click **Parametrisation…**
+below **Sampled Areas**:
+
+1. On the **Parameters** tab, change **Scope** from **Whole domain — consistent transformation**
+   to **Selected regions — dataset augmentation**.
+2. Check `inner` in **Affected regions** (leaving `interior` unchecked) and set
+   **Translation X** to **0.35**.
+3. Switch to **Processing** and click **Preview configuration**.
+
+![Viewport preview of Selected regions augmentation shifting only the inner boundary cloud by 0.35 in X while the CAD geometry and interior cloud stay fixed.](docs/assets/screenshots/region-augmentation-preview.png)
+
+In **Selected regions** mode, only the checked point clouds move while the CAD
+display and unchecked datasets stay fixed. Jorvik explicitly labels the resulting
+export metadata with `domain_consistency: "unverified"` to distinguish dataset
+augmentation from a physically consistent whole-domain affine transformation. Click
+**Restore original view** and switch **Scope** back to **Whole domain — consistent transformation**.
+
+#### 2. Build a multi-parameter Latin hypercube (LHS) range design
+
+Open the **Combinations** tab and check **Use a parameter design**:
+
+1. Choose **Design → Latin hypercube**, set **Design seed** to **42**, and set
+   **Total random/LHS/Sobol configurations** to **12**.
+2. Click **Add parameter** three times and configure three continuous parameter ranges:
+
+| Name | Target | Mode | Start | Stop | Reference | Unit |
+| --- | --- | --- | --- | --- | --- | --- |
+| `scale_x` | Scale X | Range | `0.8` | `1.6` | `1.0` | `dimensionless` |
+| `scale_y` | Scale Y | Range | `1.0` | `1.8` | `1.0` | `dimensionless` |
+| `angle` | Rotation angle | Range | `-30.0` | `30.0` | `0.0` | `degrees` |
+
+#### 3. Enforce parameter-to-parameter ordering constraints
+
+Suppose your parametric study requires the Y scale factor to be at least as large
+as the X scale factor ($s_x \le s_y$) across every configuration:
+
+1. In the constraints table on **Combinations**, click **Add constraint**.
+2. Enter **Rule name** `aspect_order`, **Left parameter** `scale_x`, **Comparison** `<=`,
+   **Right kind** `Parameter`, and **Right value / name** `scale_y`.
+3. Click **Generate configurations**.
+
+![Combinations tab showing a 12-candidate Latin hypercube design over scale_x, scale_y and angle with a parameter-to-parameter constraint scale_x <= scale_y.](docs/assets/screenshots/lhs-parameter-design.png)
+
+Because `scale_x` and `scale_y` both use `dimensionless` units, Jorvik validates and
+applies the parameter-to-parameter comparison across all 12 LHS candidates,
+retaining accepted configurations with their original `configuration_000001`… IDs
+and recording any excluded rows in **Rejected configurations…** without drawing
+replacements.
+
+#### 4. Stream exported sweeps into a downstream PINN training loop
+
+After exporting your design from **Processing → Export generated design…** to a
+folder such as `parameter_sweep`, downstream training scripts can iterate through
+verified configurations one shard at a time using `iter_sweep_datasets` and
+`training_arrays`:
+
+```python
+import numpy as np
+from jorvik.sweep_results import iter_sweep_datasets, training_arrays
+
+for config in iter_sweep_datasets("parameter_sweep", require_integrity=True):
+    # 1. Build (x, y, z, mu_1, ..., mu_P) input arrays per region label
+    feature_names = ["x", "y", "z", *config["parameters"]]
+    inputs = training_arrays(config)
+    x_interior = inputs["interior"]  # shape: (N_int, 3 + P)
+    x_inner = inputs["inner"]        # shape: (N_bnd, 3 + P)
+
+    # 2. Retrieve transformed outward normals and entity tags from datasets
+    by_label = {batch["label"]: batch for batch in config["datasets"]}
+    n_inner = np.asarray(by_label["inner"]["normals"], dtype=np.float64)  # shape: (N_bnd, 3)
+    tags_inner = np.asarray(by_label["inner"]["entity_tags"], dtype=np.int32)
+
+    # 3. Pass (x_interior, x_inner, n_inner, tags_inner) to your PyTorch / JAX model
+    assert x_inner.shape[0] == n_inner.shape[0]
+```
+
+Each shard's SHA-256 checksum, parameter provenance, and unit-length outward
+normals (transformed via the inverse transpose and per-edge parent plane frames)
+are verified automatically before `iter_sweep_datasets` yields the configuration.
+
+
 ## Desktop foundation
 
 Drag with the left mouse button to orbit; right-drag to pan; scroll to zoom.
@@ -420,6 +756,10 @@ unambiguous result determines the sign. These are numerical checks, not a proof
 for arbitrary thin or invalid CAD. Broader containment validation and certified
 sampling bounds remain open release work. Normals do not alter point coordinates.
 
+![Open CASCADE BREP cylinder showing available CAD containment-verified outward normals in Properties.](docs/assets/screenshots/brep-cylinder-normals.png)
+
+![Open surface STEP shell showing unavailable outward normals and the exact parent-domain explanation in Properties.](docs/assets/screenshots/open-shell-unavailable-normals.png)
+
 Export schema **2** stores each available normal array under the manifest's
 `normals` key, with shape `(point, xyz)` alongside its coordinate array. In xarray,
 use `ds[ds[label].attrs['normals_coordinate']]`; in NPZ, load the key named by the
@@ -572,6 +912,10 @@ the geometry exits isolation. These controls affect only display: geometry,
 selection, sampling settings and generated coordinates are retained, and export
 includes hidden and non-isolated datasets.
 
+![Viewport isolating a single 3D surface dataset together with its constituent CAD faces and boundary edges.](docs/assets/screenshots/region-isolation-context.png)
+
+![Jorvik dark theme showing 3D sphere boundary and interior datasets with adjustable screen-space marker diameter.](docs/assets/screenshots/dark-theme-workspace.png)
+
 
 ## Sampling performance and CPU modes
 
@@ -666,6 +1010,8 @@ edge in screen distance wins, with camera depth breaking ties. Geometry outside
 the camera clipping range is ineligible. Hidden faces cannot be picked in
 3D, but remain available in the tree. Show all faces also restores the Geometry and
 Faces switches and exits sampled-region isolation. Importing geometry clears face masks.
+
+![Geometry tree context menu for hiding, isolating or restoring selected CAD faces.](docs/assets/screenshots/sphere-face-context-menu.png)
 
 Right-click a Sampled Areas label (or its details) to rename it, change its colour,
 show/hide its points, isolate it, or show all regions. Colour swatches match the point
@@ -1023,6 +1369,8 @@ Try the downloaded fixtures under `examples/geometries/cad/`: `t20_data.step`
 (surface-only cube). README, provenance.json and LICENSE.txt record pinned
 upstream sources, checksums and licensing. They are not converted `.geo` files.
 
+![3D STEP solid t20_data.step imported with B-spline boundary samples and tetrahedral volume interior samples.](docs/assets/screenshots/step-solid-imported.png)
+
 STEP/BREP/IGES support is validated on these small fixtures; industrial CAD,
 assemblies, additional STEP application protocols, units, healing and stable
 cross-import region identifiers still require broader testing. No STL, Parasolid,
@@ -1190,6 +1538,8 @@ budget, seed, accuracy or CPU settings, then click **Regenerate area**. Face/edg
 lists support independent checkboxes; switching target types does not force edits
 to the current viewport selection. Existing imported-group recipes can be edited
 as an explicit set of their constituent faces or edges.
+
+![Edit sampled area dialog showing target entities, sampling method, count, seed, accuracy and compute mode controls.](docs/assets/screenshots/area-editor-dialog.png)
 
 The replacement runs in the normal background worker. Existing points remain
 visible/exportable in memory until successful completion. Success replaces one

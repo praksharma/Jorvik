@@ -31,8 +31,12 @@ physics, prescribed boundary values and solvers belong in downstream tools.
 
 | Task | Read |
 | --- | --- |
-| Follow the app step by step, with screenshots | [Your first dataset in the GUI](guide/getting-started.md) |
+| Follow the 2D annulus GUI walkthrough step by step | [Your first dataset in the GUI](guide/getting-started.md) |
+| Sample 3D curved surfaces, hide front faces and mesh 3D volumes | [Tutorial: 3D sphere cutaway and volume sampling](guide/tutorial-3d-sphere.md) |
+| Import 3D STEP/BREP solids, verify CAD normals and inspect open shells | [Tutorial: Neutral CAD workflows with STEP and BREP](guide/tutorial-cad-workflows.md) |
+| Compare all 7 sampling methods, edit areas in place and use dark theme | [Tutorial: Comparing sampling methods and editing areas](guide/tutorial-editing-and-comparison.md) |
 | Preview transforms, export sweeps and verify results in the GUI | [Transforms and sweeps in the GUI](guide/transforms-and-sweeps.md) |
+| Run LHS parameter sweeps, region augmentation and PINN training loops | [Tutorial: LHS parameter sweeps and region augmentation](guide/tutorial-parametric-lhs-and-augmentation.md) |
 | Import CAD and select the right entity | [Geometry and selection](guide/geometry.md) |
 | Label several faces or edges together | [Boundary regions](guide/regions.md) |
 | Save/load reusable sampling settings | [Sampling recipes](guide/sampling.md#sampling-recipe-files) |

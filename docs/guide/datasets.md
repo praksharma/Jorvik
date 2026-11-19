@@ -27,6 +27,8 @@ lists support independent checkboxes; switching target types does not force edit
 to the current viewport selection. Existing imported-group recipes can be edited
 as an explicit set of their constituent faces or edges.
 
+![Edit sampled area dialog showing target entities, sampling method, count, seed, accuracy and compute mode controls.](../assets/screenshots/area-editor-dialog.png)
+
 The replacement runs in the normal background worker. Existing points remain
 visible/exportable in memory until successful completion. Success replaces one
 area, preserving colour, visibility and region isolation, and updates any current

@@ -48,6 +48,10 @@ the geometry exits isolation. These controls affect only display: geometry,
 selection, sampling settings and generated coordinates are retained, and export
 includes hidden and non-isolated datasets.
 
+![Viewport isolating a single 3D surface dataset together with its constituent CAD faces and boundary edges.](../assets/screenshots/region-isolation-context.png)
+
+![Jorvik dark theme showing 3D sphere boundary and interior datasets with adjustable screen-space marker diameter.](../assets/screenshots/dark-theme-workspace.png)
+
 ## Face and sampled-area context menus
 
 Right-click a face in the geometry tree to hide the selected faces, isolate them,
@@ -60,6 +64,8 @@ edge in screen distance wins, with camera depth breaking ties. Geometry outside
 the camera clipping range is ineligible. Hidden faces cannot be picked in
 3D, but remain available in the tree. Show all faces also restores the Geometry and
 Faces switches and exits sampled-region isolation. Importing geometry clears face masks.
+
+![Geometry tree context menu for hiding, isolating or restoring selected CAD faces.](../assets/screenshots/sphere-face-context-menu.png)
 
 Right-click a Sampled Areas label (or its details) to rename it, change its colour,
 show/hide its points, isolate it, or show all regions. Colour swatches match the point
