@@ -463,3 +463,11 @@ are outside the initial release; use the verified neutral export formats instead
       refinement, `Shared internal interfaces (paired ±n)`, and `Periodic partner` twin sampling.
 - [x] `Center pivot on geometry / regions` button in Parametrisation and `float32` / `float64`
       precision plus bounded multi-worker concurrency in Sweep Export.
+- [x] `AreaEditor` parity for PINN enrichments (Darboux curvatures, R-function ADFs,
+      Space-Time $[t_0, T]$ windows) and live entity filtering.
+- [x] Window drag-and-drop opening for supported CAD and `.jorvik`/`.gsproj` files plus
+      persistent `File → Open recent` menu.
+- [x] `View → Zoom to selection` (`Z` shortcut) and context-menu `Zoom to selected / dataset`
+      camera framing.
+- [x] In-app `Verify CAD trimming & containment` action and `Copy Python loader snippet`
+      clipboard generator.

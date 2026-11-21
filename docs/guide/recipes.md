@@ -572,6 +572,10 @@ workflows end to end and export their enriched NetCDF (`.nc`) and NumPy (`.npz`)
 | Center transform pivot | **Parametrisation…** → **Center pivot on geometry / regions** | Populates Pivot $(X, Y, Z)$ with the exact domain or checked-region center |
 | Export float32 / parallel sweep | **Parametrisation…** → **Processing** → **Precision (`float32`)** and **Parallel workers** | Writes compact single-precision training shards across multiple threads |
 | Save viewport screenshot | `Ctrl+P` or **File → Save viewport screenshot…** (toolbar camera button) | Exports the live 3D viewport as a `.png` image |
+| Zoom to selected / dataset | `Z`, **View → Zoom to selection**, or right-click → **Zoom to selected / dataset** | Frames the 3D camera tightly around the selected CAD entities or dataset points |
+| Drag-and-drop & recent files | Drag a `.geo`, `.step`, `.brep`, `.iges` or `.jorvik` file onto the window, or **File → Open recent** | Opens geometry or project archives directly and tracks recent files |
+| Verify CAD trimming | Right-click a dataset → **Verify CAD trimming & containment** | Validates CAD curve/surface/solid containment and normal orientation |
+| Copy Python loader snippet | **File → Copy Python loader snippet** or right-click a dataset → **Copy Python loader snippet** | Copies ready-to-run `xarray` / `NumPy` loading code for the active datasets to the clipboard |
 | Compare sampling methods | Generate a dataset, change method/seed, generate another | Separate labelled datasets you can show/hide |
 | Undo or redo an edit | `Ctrl+Z`; `Ctrl+Shift+Z` or `Ctrl+Y` | Restores supported edits within the current document's 30-entry history |
 | Duplicate or delete data | Right-click a sampled dataset → **Duplicate dataset** / **Delete dataset** | Undoable dataset edits; duplication does not resample |

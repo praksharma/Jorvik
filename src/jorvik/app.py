@@ -43,6 +43,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.items = {}
         self.setWindowTitle("Jorvik — Untitled")
         self.setWindowIcon(app_icon())
+        self.setAcceptDrops(True)
         self.resize(1280, 820)
         self.setMinimumSize(820, 560)
         self.view = Viewport(self)
@@ -52,12 +53,15 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         file_menu = self.menuBar().addMenu("&File")
         self.open_action = file_menu.addAction("&Open Geometry…", self.open_geometry, "Ctrl+O")
         self.open_project_action = file_menu.addAction('Open project…', self.open_project, 'Ctrl+Shift+O')
+        self.recent_menu = file_menu.addMenu('Open recent')
+        self.refresh_recent_menu()
         self.save_project_action = file_menu.addAction('Save project', self.save_project, 'Ctrl+S')
         self.save_project_as_action = file_menu.addAction('Save project as…', lambda: self.save_project(True), 'Ctrl+Shift+S')
         self.lightweight_copy_action = file_menu.addAction('Save lightweight copy (no samples)…', self.save_lightweight_copy)
         file_menu.addSeparator()
         self.export_action = file_menu.addAction("&Export samples…", self.export_samples, "Ctrl+Alt+E")
         self.export_action.setEnabled(False)
+        self.copy_snippet_action = file_menu.addAction("Copy Python loader snippet", lambda: self.copy_python_loader_snippet())
         self.screenshot_action = file_menu.addAction("Save viewport screenshot…", self.save_viewport_screenshot, "Ctrl+P")
         self.inspect_sweep_action = file_menu.addAction('Inspect exported sweep…', self.open_sweep_inspector)
         file_menu.addAction("&Quit", self.close, "Ctrl+Q")
@@ -149,6 +153,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.bounding_box_action.setCheckable(True)
         self.bounding_box_action.setShortcut('B')
         self.bounding_box_action.toggled.connect(self.view.set_bounding_box_visible)
+        self.zoom_selection_action = self.view_menu.addAction('Zoom to selection', self.zoom_to_selection, 'Z')
 
         self.shading_combo = QComboBox()
         for title, mode_key in [('Opaque', 'opaque'), ('Translucent (X-Ray)', 'translucent'), ('Wireframe', 'wireframe')]:
@@ -438,6 +443,8 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
     def face_menu(self):
         menu = QMenu(self.tree)
         faces = sorted(tag for dimension, tag in self.selection if dimension == 2)
+        menu.addAction('Zoom to selected', self.zoom_to_selection).setEnabled(bool(self.selection))
+        menu.addSeparator()
         hide = menu.addAction('Hide selected faces', lambda: self.hide_faces(faces))
         isolate = menu.addAction('Isolate selected faces', lambda: self.isolate_faces(faces))
         hide.setEnabled(bool(faces)); isolate.setEnabled(bool(faces))
@@ -492,8 +499,178 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
             0, Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked))
         isolate = menu.addAction('Isolate region', lambda: self.isolate_area(label))
         isolate.setEnabled(status == 'Generated')
+        menu.addAction('Zoom to dataset', lambda: self.view.zoom_to_sample(label)).setEnabled(status == 'Generated')
         menu.addAction('Show all regions', self.show_all_regions)
+        menu.addSeparator()
+        menu.addAction('Verify CAD trimming & containment', lambda: self.verify_area_containment(label)).setEnabled(status == 'Generated')
+        menu.addAction('Copy Python loader snippet', lambda: self.copy_python_loader_snippet(label)).setEnabled(status == 'Generated')
         return menu
+
+    def zoom_to_selection(self):
+        if self.selection:
+            self.view.zoom_to_selection()
+            self.statusBar().showMessage(f'Zoomed camera to {len(self.selection)} selected entity/entities')
+        elif self.selected_area:
+            self.view.zoom_to_sample(self.selected_area)
+            self.statusBar().showMessage(f'Zoomed camera to dataset {self.selected_area}')
+        else:
+            self.view.zoom_to_selection()
+
+    def verify_area_containment(self, label):
+        if label not in self.sampled_areas.areas:
+            return None
+        area, status = self.sampled_areas.areas[label]
+        if status != 'Generated':
+            return None
+        from .convergence import validate_trimming_and_containment
+        try:
+            report = validate_trimming_and_containment(area)
+        except Exception as error:
+            QMessageBox.warning(self, 'CAD containment check', str(error))
+            return None
+        summary = (
+            f"CAD Trimming & Containment Verified: {label}\n"
+            f"Verified points: {report['verified_points']:,}\n"
+            f"Entity dimension: {report['entity_dimension']}D ({report['source_format']})\n"
+            f"Containment verified: {report['containment_verified']}\n"
+            f"Normal status: {report['normal_status']}"
+        )
+        self.properties.setText(summary)
+        self.properties_dock.raise_()
+        self.statusBar().showMessage(
+            f"Verified {report['verified_points']:,} points on {label} (containment_verified={report['containment_verified']})"
+        )
+        return report
+
+    def copy_python_loader_snippet(self, label=None):
+        batches = [b for b in self.sampling.batches if (label is None or b['label'] == label)]
+        if not batches and label in self.sampled_areas.areas:
+            area, status = self.sampled_areas.areas[label]
+            if status == 'Generated':
+                batches = [area]
+        stem = Path(self.geometry['source']).stem if self.geometry else 'geometry'
+        lines = [
+            'import numpy as np',
+            'import xarray as xr',
+            '',
+            f'ds = xr.open_dataset("{stem}_samples.nc", engine="scipy")',
+        ]
+        for idx, b in enumerate(batches):
+            lbl = b['label']
+            lines.append(f'# Dataset: {lbl} ({b["count"]} points, method={b["method"]!r})')
+            lines.append(f'xyz_{idx} = np.asarray(ds[{lbl!r}].values, dtype=np.float64)  # shape ({b["count"]}, 3)')
+            for attr_key, var_prefix in (
+                ('normals_coordinate', 'normals'),
+                ('weights_coordinate', 'weights'),
+                ('boundary_distances_coordinate', 'dist'),
+                ('adf_distances_coordinate', 'adf'),
+                ('transfinite_weights_coordinate', 'transfinite_w'),
+                ('mean_curvature_coordinate', 'mean_H'),
+                ('times_coordinate', 'times'),
+            ):
+                field_map = {
+                    'normals_coordinate': 'normals',
+                    'weights_coordinate': 'weights',
+                    'boundary_distances_coordinate': 'boundary_distances',
+                    'adf_distances_coordinate': 'adf_distances',
+                    'transfinite_weights_coordinate': 'transfinite_weights',
+                    'mean_curvature_coordinate': 'mean_curvature',
+                    'times_coordinate': 'times',
+                }
+                if b.get(field_map[attr_key]) is not None:
+                    lines.append(
+                        f'{var_prefix}_{idx} = np.asarray(ds.coords[ds[{lbl!r}].attrs[{attr_key!r}]].values)'
+                    )
+        snippet = '\n'.join(lines) + '\n'
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(snippet)
+        self.properties.setText('Copied Python loader snippet to clipboard:\n\n' + snippet)
+        self.properties_dock.raise_()
+        self.statusBar().showMessage('Copied Python xarray/NumPy loader snippet to clipboard')
+        return snippet
+
+    def recent_files(self):
+        raw = self.settings.value('recent_files', [])
+        if isinstance(raw, str):
+            raw = [raw] if raw else []
+        elif not isinstance(raw, list):
+            raw = []
+        return [str(p) for p in raw if isinstance(p, str) and p.strip()]
+
+    def record_recent_file(self, path):
+        resolved = str(Path(path).resolve())
+        items = [p for p in self.recent_files() if p != resolved]
+        items.insert(0, resolved)
+        self.settings.setValue('recent_files', items[:10])
+        self.refresh_recent_menu()
+
+    def clear_recent_files(self):
+        self.settings.setValue('recent_files', [])
+        self.refresh_recent_menu()
+
+    def refresh_recent_menu(self):
+        if not hasattr(self, 'recent_menu') or self.recent_menu is None:
+            return
+        self.recent_menu.clear()
+        files = self.recent_files()
+        if not files:
+            empty = self.recent_menu.addAction('No recent files')
+            empty.setEnabled(False)
+            return
+        for item_path in files:
+            p = Path(item_path)
+            act = self.recent_menu.addAction(f'{p.name} ({p.parent})', lambda checked=False, target=item_path: self.open_recent_file(target))
+            act.setData(item_path)
+        self.recent_menu.addSeparator()
+        self.recent_menu.addAction('Clear recent files', self.clear_recent_files)
+
+    def open_recent_file(self, path):
+        p = Path(path)
+        if not p.is_file():
+            QMessageBox.warning(self, 'Open recent', f'File no longer exists: {p}')
+            return False
+        ext = p.suffix.lower()
+        if ext in ('.jorvik', '.gsproj'):
+            self.load_project_file(p)
+            self.record_recent_file(p)
+            return True
+        self.load_geometry(p)
+        return True
+
+    def dragEnterEvent(self, event):
+        mime = event.mimeData()
+        if mime and mime.hasUrls():
+            for url in mime.urls():
+                if url.isLocalFile():
+                    ext = Path(url.toLocalFile()).suffix.lower()
+                    if ext in ('.geo', '.step', '.stp', '.brep', '.iges', '.igs', '.jorvik', '.gsproj'):
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
+
+    def dropEvent(self, event):
+        if self.project_busy() or self.import_process is not None or self.sampling.process is not None:
+            event.ignore()
+            return
+        mime = event.mimeData()
+        if not (mime and mime.hasUrls()):
+            event.ignore()
+            return
+        for url in mime.urls():
+            if url.isLocalFile():
+                p = Path(url.toLocalFile())
+                ext = p.suffix.lower()
+                if ext in ('.jorvik', '.gsproj'):
+                    event.acceptProposedAction()
+                    self.load_project_file(p)
+                    self.record_recent_file(p)
+                    return
+                if ext in ('.geo', '.step', '.stp', '.brep', '.iges', '.igs'):
+                    event.acceptProposedAction()
+                    self.load_geometry(p)
+                    return
+        event.ignore()
 
     def isolate_area(self, label):
         self.show_sampled_area(label)
@@ -874,6 +1051,8 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         faces = sum(e["dimension"] == 2 for e in geometry["entities"])
         edges = sum(e["dimension"] == 1 for e in geometry["entities"])
         self.statusBar().showMessage(f"{geometry['name']} | {faces} faces · {edges} edges | {self.view.mode.title()} selection")
+        if geometry.get('source') and Path(geometry['source']).is_file():
+            self.record_recent_file(geometry['source'])
         self.reset_history()
         self.mark_project_clean()
 

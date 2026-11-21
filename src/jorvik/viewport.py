@@ -139,6 +139,12 @@ class Viewport(QWidget):
         self.show_bounding_box = bool(visible)
         self.call("setBoundingBoxVisible", self.show_bounding_box)
 
+    def zoom_to_selection(self):
+        self.call("zoomToSelection")
+
+    def zoom_to_sample(self, label):
+        self.call("zoomToSample", str(label))
+
     def set_clipping_plane(self, config):
         self.clipping_plane.update(config)
         self.call("setClippingPlane", self.clipping_plane)

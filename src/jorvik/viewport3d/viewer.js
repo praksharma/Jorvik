@@ -209,6 +209,40 @@ function fit(direction){
   camera.position.copy(center).addScaledVector(direction.clone().normalize(),distance);
   camera.near=Math.max(distance/10000,1e-8);camera.far=distance*100;camera.updateProjectionMatrix();controls.update();
 }
+function zoomToBox(box){
+  if(box.isEmpty())return false;
+  gizmo.cancel();stopMotion();
+  const targetCenter=box.getCenter(new THREE.Vector3());
+  const targetRadius=Math.max(box.getSize(new THREE.Vector3()).length()*0.6,baseRadius*0.04,1e-5);
+  let dir=camera.position.clone().sub(controls.target);
+  if(dir.lengthSq()<1e-12)dir.set(1,0.7,1);
+  dir.normalize();
+  controls.target.copy(targetCenter);
+  const distance=targetRadius/Math.sin(THREE.MathUtils.degToRad(camera.fov/2))/Math.min(1,camera.aspect);
+  camera.position.copy(targetCenter).addScaledVector(dir,distance);
+  camera.near=Math.max(distance/10000,1e-8);camera.far=Math.max(distance*100,baseRadius*100);
+  camera.updateProjectionMatrix();controls.update();
+  return true;
+}
+function zoomToSelection(){
+  const box=new THREE.Box3();
+  for(const object of objects){
+    if(selected.has(key(object)))box.expandByObject(object);
+  }
+  if(box.isEmpty()){
+    for(const object of sampleObjects){
+      if(object.visible)box.expandByObject(object);
+    }
+  }
+  return zoomToBox(box);
+}
+function zoomToSample(label){
+  const box=new THREE.Box3();
+  for(const object of sampleObjects){
+    if(!label||object.userData.label===label)box.expandByObject(object);
+  }
+  return zoomToBox(box);
+}
 function orient(index){
   if(index<0||index>6)return;
   gizmo.cancel();stopMotion();
@@ -602,7 +636,7 @@ function diagnostics(){
 window.geoViewer={
   setBoundaryRegions,cameraState,setCameraState,setTranslationPreview,orient,appearance,loadGeometry,
   setMode,setSelection,setGeometryVisibility,setShadingMode,setClippingPlane,setProjectionMode,
-  setBoundingBoxVisible,setSamples,setSampleStyle,diagnostics,reset:()=>orient(0)
+  setBoundingBoxVisible,zoomToSelection,zoomToSample,setSamples,setSampleStyle,diagnostics,reset:()=>orient(0)
 };
 renderer.domElement.addEventListener('webglcontextlost',event=>{event.preventDefault();window.geoReportFailure('Graphics context lost. Restart the application.');});
 addEventListener('resize',resize);resize();appearance({canvas:'#fafcfc',grid:'#e2e7e8',showGrid:false,showAxes:true});orient(0);setMode('face');
