@@ -9,6 +9,16 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from .theme import colors
 from .parametrisation import preview_payload
 
+SCALAR_FIELD_MAP = {
+    'distance': ('boundary_distances', 'Boundary distance d(x)'),
+    'weight': ('weights', 'Quadrature weight w'),
+    'adf': ('adf_distances', 'R-function ADF d̃(x)'),
+    'mean_curvature': ('mean_curvature', 'Mean curvature H'),
+    'gaussian_curvature': ('gaussian_curvature', 'Gaussian curvature K'),
+    'time': ('times', 'Space-time timestamp t'),
+    'tag': ('entity_tags', 'CAD entity tag'),
+}
+
 
 class Bridge(QObject):
     def __init__(self, view):
@@ -28,6 +38,11 @@ class Bridge(QObject):
         if self.view.geometry and document == self.view.geometry["document"]:
             self.view.picked.emit(dimension, tag, extend)
 
+    @Slot(str, int, int, float, float, float)
+    def hovered(self, document, dimension, tag, x, y, z):
+        if self.view.geometry and document == self.view.geometry["document"]:
+            self.view.hovered.emit(dimension, tag, x, y, z)
+
     @Slot(str)
     def failed(self, message):
         self.view.fail(message)
@@ -41,12 +56,16 @@ class Viewport(QWidget):
     status = Signal(str)
     oriented = Signal(int)
     picked = Signal(int, int, bool)
+    hovered = Signal(int, int, float, float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.is_ready = False
         self.geometry = None
-        self.samples = {"batches": [], "visible": True, "through": True, "size": 7}
+        self.samples = {
+            "batches": [], "visible": True, "through": True, "size": 7,
+            "colorBy": "dataset", "colormap": "viridis", "vectorMode": "off", "glyphScale": 1.0,
+        }
         self.translation_preview = None
         self.boundary_regions = []
         self.camera_state = None
@@ -54,6 +73,8 @@ class Viewport(QWidget):
         self.mode = "face"
         self.show_grid = False
         self.show_axes = True
+        self.shading_mode = "opaque"
+        self.clipping_plane = {"axis": "off", "position": 0.0, "flip": False, "clipSamples": False}
         self.geometry_visibility = {"geometry":True,"faces":True,"edges":True,"isolatedEntities":None,"hiddenFaces":[],"isolatedFaces":None}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -98,6 +119,14 @@ class Viewport(QWidget):
         self.geometry_visibility.update(visibility)
         self.call("setGeometryVisibility", self.geometry_visibility)
 
+    def set_shading_mode(self, mode):
+        self.shading_mode = mode if mode in ("opaque", "translucent", "wireframe") else "opaque"
+        self.call("setShadingMode", self.shading_mode)
+
+    def set_clipping_plane(self, config):
+        self.clipping_plane.update(config)
+        self.call("setClippingPlane", self.clipping_plane)
+
     def set_geometry(self, geometry):
         self.geometry = geometry
         self.selection = []
@@ -107,19 +136,38 @@ class Viewport(QWidget):
     def _js_samples(samples):
         if not isinstance(samples, dict) or "batches" not in samples:
             return samples
+        color_by = samples.get("colorBy", "dataset")
+        vector_mode = samples.get("vectorMode", "off")
+        field_info = SCALAR_FIELD_MAP.get(color_by)
         slim_batches = []
         for batch in samples["batches"]:
             coords = batch["coordinates"]
             if not isinstance(coords, list):
                 coords = coords.tolist()
-            slim_batches.append({"label": batch["label"], "coordinates": coords})
-        return {**samples, "batches": slim_batches}
+            item = {"label": batch["label"], "coordinates": coords}
+            if field_info is not None:
+                field_key, _ = field_info
+                vals = batch.get(field_key)
+                if vals is not None:
+                    item["scalars"] = vals.tolist() if hasattr(vals, "tolist") else list(vals)
+            if vector_mode in ("normals", "darboux"):
+                for vkey in ("normals", "partner_normals") + (("tangent_u", "tangent_v") if vector_mode == "darboux" else ()):
+                    vecs = batch.get(vkey)
+                    if vecs is not None:
+                        item[vkey] = vecs.tolist() if hasattr(vecs, "tolist") else list(vecs)
+            slim_batches.append(item)
+        out = {**samples, "batches": slim_batches}
+        if field_info is not None:
+            out["scalarFieldLabel"] = field_info[1]
+        return out
 
     def flush_geometry(self):
         self.call("loadGeometry", self.geometry)
         self.call("setBoundaryRegions", self.boundary_regions)
         self.call("setMode", self.mode)
         self.call("setSelection", self.selection)
+        self.call("setShadingMode", self.shading_mode)
+        self.call("setClippingPlane", self.clipping_plane)
         self.call("setSamples", self._js_samples(self.samples))
         self.call("setGeometryVisibility",self.geometry_visibility)
         self.call("setTranslationPreview", preview_payload(self.translation_preview))
@@ -135,12 +183,21 @@ class Viewport(QWidget):
         self.call("setSelection", selection)
 
     def set_samples(self, samples):
-        self.samples = samples
-        self.call("setSamples", self._js_samples(samples))
+        self.samples = {**self.samples, **samples}
+        self.call("setSamples", self._js_samples(self.samples))
 
     def set_sample_style(self, style):
+        prev_color = self.samples.get("colorBy", "dataset")
+        prev_vec = self.samples.get("vectorMode", "off")
         self.samples.update(style)
-        self.call("setSampleStyle", style)
+        new_color = self.samples.get("colorBy", "dataset")
+        new_vec = self.samples.get("vectorMode", "off")
+        if (new_color != prev_color or new_vec != prev_vec) and self.samples.get("batches"):
+            self.call("setSamples", self._js_samples(self.samples))
+        else:
+            if new_color in SCALAR_FIELD_MAP:
+                style = {**style, "scalarFieldLabel": SCALAR_FIELD_MAP[new_color][1]}
+            self.call("setSampleStyle", style)
 
     def set_boundary_regions(self, regions):
         self.boundary_regions = regions

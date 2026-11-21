@@ -440,3 +440,16 @@ are outside the initial release; use the verified neutral export formats instead
       solver-agnostic RAD (RAR-D) adaptive importance resampling and RAR-G greedy augmentation.
 - [x] Joint low-discrepancy space-time QMC sampling, initial-condition slices and
       Wang–Sankaran–Perdikaris causal temporal window weights.
+
+## Desktop & 3D viewport UI upgrades
+
+- [x] 3D outward normal and Darboux tangent vector arrow glyph overlays with adjustable arrow scale.
+- [x] Scalar field point-cloud colormaps (`Viridis`, `Plasma`, `Coolwarm`) for $d(\mathbf{x})$,
+      quadrature weights $w_i$, R-function ADFs, curvatures $(H, K)$, timestamps $t_i$ and
+      entity tags, with an on-screen HUD colorbar legend.
+- [x] CAD surface shading selector (`Opaque`, `Translucent (X-Ray)`, `Wireframe`) and
+      interactive 3D $X / Y / Z$ clipping plane slider with flip and point-clipping options.
+- [x] Live geometry, physical-group and region tree search/filter box plus status-bar 3D hover coordinate readout.
+- [x] GUI controls for PINN enrichments (Darboux curvatures, R-function ADFs, Space-Time $[t_0, T]$ windows)
+      and one-click **Sample all regions + interior** batch generation with single-step undo.
+- [x] Viewport PNG screenshot export (`Ctrl+P` / toolbar button).

@@ -508,12 +508,45 @@ def sample_geometry_batch(requests):
                 )
         finally:
             gmsh.finalize()
+    for idx, (req, _, _, _, _) in enumerate(verified):
+        batch = outputs[idx]
+        if req.get('include_differential_geometry') and batch.get('target') != 'interior' and batch.get('entity_dimension') in (1, 2):
+            from .differential_geometry import attach_differential_geometry
+            batch = attach_differential_geometry(batch)
+        if req.get('include_adf'):
+            from .adf import attach_adf_to_batch
+            geom_meta = {
+                'source': batch['source'],
+                'source_hash': batch['source_hash'],
+                'dimension': 3 if batch.get('interior_domain') == 'solid' else 2,
+                'entities': req.get('all_entities', [{'dimension': d, 'tag': t} for d, t in batch.get('entities', [])]),
+                'regions': req.get('adf_regions', []),
+            }
+            batch = attach_adf_to_batch(
+                batch,
+                geom_meta,
+                regions=req.get('adf_regions') or None,
+                order=float(req.get('adf_order', 2.0)),
+                transfinite_exponent=float(req.get('adf_transfinite_exponent', 2.0)),
+            )
+        if isinstance(req.get('spacetime'), dict) and req['spacetime'].get('enabled', True):
+            from .spacetime import attach_spacetime
+            st_cfg = req['spacetime']
+            batch = attach_spacetime(
+                batch,
+                time_bounds=st_cfg.get('time_bounds', (0.0, 1.0)),
+                causal_windows=int(st_cfg.get('causal_windows', 8)),
+                seed=req.get('seed', 42),
+            )
+        outputs[idx] = batch
     return outputs
 
 
 if __name__ == '__main__':
     try:
-        print(json.dumps(sample_geometry(json.load(sys.stdin)), allow_nan=False))
+        payload = json.load(sys.stdin)
+        out = sample_geometry_batch(payload) if isinstance(payload, list) else sample_geometry(payload)
+        print(json.dumps(out, allow_nan=False))
     except Exception as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)

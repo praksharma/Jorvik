@@ -17,6 +17,7 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.process = None
         self.cancelled = False
         self._recipe_busy = False
+        self._pending_batch_list = None
         self.batches = []
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -91,6 +92,38 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         form.addRow('', self.include_distance)
         self.refinement_target.currentIndexChanged.connect(self.update_refinement_state)
         self.update_refinement_state()
+
+        # PINN geometric enrichments
+        self.include_differential_geometry = QCheckBox('Darboux tangents & curvatures (H, K)')
+        self.include_differential_geometry.setToolTip(
+            'Evaluate right-handed orthonormal Darboux tangent frames (t₁, t₂, n) and exact CAD principal, mean and Gaussian curvatures on 1D/2D boundary datasets.'
+        )
+        form.addRow('PINN tensors', self.include_differential_geometry)
+        self.include_adf = QCheckBox('Smooth R-function ADF & transfinite weights')
+        self.include_adf.setToolTip(
+            'Evaluate C¹-smooth Rvachev R-equivalence Approximate Distance Functions d̃(x), spatial gradients and transfinite blending weights across boundary regions.'
+        )
+        form.addRow('', self.include_adf)
+        self.include_spacetime = QCheckBox('Space-time QMC [t₀, T] & causal windows')
+        self.include_spacetime.setToolTip(
+            'Attach scrambled low-discrepancy timestamps t ∈ [t₀, T], causal temporal window indices and space-time quadrature weights.'
+        )
+        form.addRow('', self.include_spacetime)
+        st_row = QHBoxLayout()
+        self.time_start = QDoubleSpinBox()
+        self.time_start.setDecimals(2); self.time_start.setRange(-1e4, 1e4); self.time_start.setValue(0.0)
+        self.time_start.setToolTip('Start time t₀')
+        self.time_end = QDoubleSpinBox()
+        self.time_end.setDecimals(2); self.time_end.setRange(-1e4, 1e4); self.time_end.setValue(1.0)
+        self.time_end.setToolTip('End time T > t₀')
+        self.causal_windows = QSpinBox()
+        self.causal_windows.setRange(1, 256); self.causal_windows.setValue(8)
+        self.causal_windows.setToolTip('Number of causal temporal windows M')
+        st_row.addWidget(self.time_start); st_row.addWidget(self.time_end); st_row.addWidget(self.causal_windows)
+        form.addRow('t₀ / T / Windows', st_row)
+        self.include_spacetime.toggled.connect(self.update_spacetime_state)
+        self.update_spacetime_state()
+
         layout.addLayout(form)
         self.note = QLabel()
         self.note.setWordWrap(True)
@@ -104,6 +137,11 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.cancel.setEnabled(False)
         row.addWidget(self.generate);row.addWidget(self.cancel)
         layout.addLayout(row)
+        self.batch_all_button = QPushButton('Sample all regions + interior')
+        self.batch_all_button.setToolTip('Generate datasets for all defined boundary regions (or groups) and the domain interior in a single pass, reusing the prepared CAD mesh.')
+        self.batch_all_button.setEnabled(False)
+        self.batch_all_button.clicked.connect(self.start_batch_all)
+        layout.addWidget(self.batch_all_button)
         recipes = QHBoxLayout()
         self.save_recipe_button = QPushButton('Save recipe…'); self.save_recipe_button.clicked.connect(self.save_sampling_recipe)
         self.load_recipe_button = QPushButton('Load recipe…'); self.load_recipe_button.clicked.connect(self.load_sampling_recipe)
@@ -130,7 +168,53 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         size_row.addWidget(self.point_size, 1)
         size_row.addWidget(self.size_label)
         layout.addLayout(size_row)
+
+        viz_form = QFormLayout()
+        viz_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.color_by = QComboBox()
+        for title, key in [
+            ('Dataset colour', 'dataset'),
+            ('Boundary distance d(x)', 'distance'),
+            ('Quadrature weight w', 'weight'),
+            ('R-function ADF d̃(x)', 'adf'),
+            ('Mean curvature H', 'mean_curvature'),
+            ('Gaussian curvature K', 'gaussian_curvature'),
+            ('Space-time timestamp t', 'time'),
+            ('CAD entity tag', 'tag'),
+        ]:
+            self.color_by.addItem(title, key)
+        self.color_by.setToolTip('Color sample points by dataset colour or any evaluated geometric/PINN scalar field.')
+        viz_form.addRow('Color points by', self.color_by)
+        self.colormap = QComboBox()
+        for title, key in [('Viridis', 'viridis'), ('Plasma', 'plasma'), ('Coolwarm', 'coolwarm')]:
+            self.colormap.addItem(title, key)
+        self.colormap.setToolTip('Scientific colormap used when coloring points by a scalar field.')
+        viz_form.addRow('Colormap', self.colormap)
+        self.vector_mode = QComboBox()
+        for title, key in [
+            ('Off', 'off'),
+            ('Outward normals n', 'normals'),
+            ('Darboux frame (n, t₁, t₂)', 'darboux'),
+        ]:
+            self.vector_mode.addItem(title, key)
+        self.vector_mode.setToolTip('Overlay 3D outward normal arrows or full Darboux tangent-normal frames on boundary points.')
+        viz_form.addRow('Vector arrows', self.vector_mode)
+        glyph_row = QHBoxLayout()
+        self.glyph_scale = QSlider(Qt.Orientation.Horizontal)
+        self.glyph_scale.setRange(20, 250)
+        self.glyph_scale.setValue(100)
+        self.glyph_scale.setToolTip('3D vector arrow length scale (20% to 250%).')
+        self.glyph_scale_label = QLabel('1.0×')
+        glyph_row.addWidget(self.glyph_scale, 1)
+        glyph_row.addWidget(self.glyph_scale_label)
+        viz_form.addRow('Arrow scale', glyph_row)
+        layout.addLayout(viz_form)
+
         self.point_size.valueChanged.connect(self.refresh_style)
+        self.color_by.currentIndexChanged.connect(self.refresh_style)
+        self.colormap.currentIndexChanged.connect(self.refresh_style)
+        self.vector_mode.currentIndexChanged.connect(self.refresh_style)
+        self.glyph_scale.valueChanged.connect(self.refresh_style)
         self.refresh_style()
         self.export = QPushButton('Export samples…')
         self.export.setEnabled(False)
@@ -156,6 +240,11 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         for control in (self.refinement_bias, self.refinement_decay, self.include_distance):
             control.setEnabled(enabled)
 
+    def update_spacetime_state(self):
+        enabled = self.process is None and self.include_spacetime.isChecked()
+        for control in (self.time_start, self.time_end, self.causal_windows):
+            control.setEnabled(enabled)
+
     def update_note(self):
         text = 'Boundary coordinates follow the original curves/surfaces. Surface trim limits and 3D interiors use numerical geometry.'
         if self.method.currentData() == 'grid':
@@ -168,6 +257,7 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.clear_batches()
         self.refresh_targets()
         self.generate.setEnabled(True)
+        self.batch_all_button.setEnabled(True)
         self.summary.setText('Select a target and generate a dataset.')
         self.save_recipe_button.setEnabled(True); self.load_recipe_button.setEnabled(True)
 
@@ -210,12 +300,15 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
     def set_busy(self, busy):
         self._recipe_busy = bool(busy)
         for control in (self.target, self.method, self.count, self.seed, self.label, self.resolution,
-                        self.compute_mode, self.cpu_threads, self.refinement_target):
+                        self.compute_mode, self.cpu_threads, self.refinement_target,
+                        self.include_differential_geometry, self.include_adf, self.include_spacetime):
             control.setEnabled(not busy)
         self.update_compute_mode()
         self.update_refinement_state()
+        self.update_spacetime_state()
         self.clear.setEnabled(not busy)
         self.generate.setEnabled(not busy and self.window.geometry is not None)
+        self.batch_all_button.setEnabled(not busy and self.window.geometry is not None)
         self.cancel.setEnabled(busy)
         self.save_recipe_button.setEnabled(not busy and self.window.geometry is not None)
         self.load_recipe_button.setEnabled(not busy and self.window.geometry is not None)
@@ -224,8 +317,8 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.window.export_action.setEnabled(not busy and bool(self.batches))
         self.window.refresh_project_actions()
 
-    def next_available_label(self, label):
-        used = set(self.window.sampled_areas.areas)
+    def next_available_label(self, label, extra_used=()):
+        used = set(self.window.sampled_areas.areas) | set(extra_used)
         if label not in used:
             return label
         base, separator, suffix = label.rpartition('_')
@@ -236,6 +329,33 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         while f'{base}_{number}' in used:
             number += 1
         return f'{base}_{number}'
+
+    def _attach_pinn_options(self, request):
+        geometry = self.window.geometry
+        if self.include_differential_geometry.isChecked() and request.get('target') != 'interior':
+            request['include_differential_geometry'] = True
+        if self.include_adf.isChecked():
+            request['include_adf'] = True
+            request['all_entities'] = [
+                {'dimension': e['dimension'], 'tag': e['tag']}
+                for e in geometry.get('entities', [])
+            ]
+            if self.window.boundary_regions:
+                request['adf_regions'] = [
+                    {'label': r['label'], 'entities': r['entities']}
+                    for r in self.window.boundary_regions
+                ]
+        if self.include_spacetime.isChecked():
+            t0 = float(self.time_start.value())
+            t1 = float(self.time_end.value())
+            if t1 <= t0:
+                raise ValueError('Space-time sampling requires end time T > start time t₀.')
+            request['spacetime'] = {
+                'enabled': True,
+                'time_bounds': [t0, t1],
+                'causal_windows': int(self.causal_windows.value()),
+            }
+        return request
 
     def build_request(self):
         """Read controls without generating or changing labels/selection."""
@@ -261,7 +381,7 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
             raise ValueError('Give this dataset a label before generating points.')
         geometry = self.window.geometry
         request = {key: geometry[key] for key in ('source', 'source_hash', 'document')}
-        for key in ('source_format', 'import_options', 'coordinate_units'):
+        for key in ('source_format', 'import_options', 'coordinate_units', 'source_dependencies'):
             if key in geometry:
                 request[key] = geometry[key]
         request.update(target=kind, entities=entities, method=self.method.currentData(),
@@ -284,6 +404,7 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
                 'decay': float(self.refinement_decay.value()),
                 'include_distance': bool(self.include_distance.isChecked()),
             }
+        self._attach_pinn_options(request)
         return request
 
     def start(self):
@@ -296,6 +417,96 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.label.setText(request['label'])
         self.generate_request(request)
 
+    def start_batch_all(self):
+        """Sample all defined boundary regions (or groups) plus the domain interior in a single batch run."""
+        if self.process or not self.window.geometry or self.window.import_process or self.window.saving_project or self.window.project_io is not None:
+            return
+        geometry = self.window.geometry
+        requests = []
+        used_labels = set()
+        base_seed = int(self.seed.value())
+        from .regions import region_snapshot
+        try:
+            for idx, reg in enumerate(self.window.boundary_regions):
+                snap = region_snapshot(self.window.boundary_regions, geometry, reg['id'])
+                lbl = self.next_available_label(reg['label'], used_labels)
+                used_labels.add(lbl)
+                req = {key: geometry[key] for key in ('source', 'source_hash', 'document')}
+                for key in ('source_format', 'import_options', 'coordinate_units', 'source_dependencies'):
+                    if key in geometry:
+                        req[key] = geometry[key]
+                req.update(
+                    target='region', entities=snap['entities'], boundary_region=snap,
+                    method=self.method.currentData(), count=self.count.value(),
+                    seed=(base_seed + idx * 997) % 2147483647, label=lbl,
+                    resolution=self.resolution.currentData(), compute_mode=self.compute_mode.currentData(),
+                    cpu_threads=self.cpu_threads.value() if self.compute_mode.currentData() == 'multicore' else 1,
+                )
+                self._attach_pinn_options(req)
+                requests.append(req)
+            if not requests:
+                for idx, grp in enumerate(geometry.get('groups', [])):
+                    if grp['dimension'] in (1, 2):
+                        raw_name = grp['name'] or f"group_{grp['tag']}"
+                        lbl = self.next_available_label(raw_name, used_labels)
+                        used_labels.add(lbl)
+                        req = {key: geometry[key] for key in ('source', 'source_hash', 'document')}
+                        for key in ('source_format', 'import_options', 'coordinate_units', 'source_dependencies'):
+                            if key in geometry:
+                                req[key] = geometry[key]
+                        req.update(
+                            target='group', entities=[[grp['dimension'], t] for t in grp['entities']],
+                            method=self.method.currentData(), count=self.count.value(),
+                            seed=(base_seed + idx * 997) % 2147483647, label=lbl,
+                            resolution=self.resolution.currentData(), compute_mode=self.compute_mode.currentData(),
+                            cpu_threads=self.cpu_threads.value() if self.compute_mode.currentData() == 'multicore' else 1,
+                        )
+                        self._attach_pinn_options(req)
+                        requests.append(req)
+            if geometry.get('interior_domain') in ('planar', 'solid'):
+                lbl = self.next_available_label('interior', used_labels)
+                used_labels.add(lbl)
+                req = {key: geometry[key] for key in ('source', 'source_hash', 'document')}
+                for key in ('source_format', 'import_options', 'coordinate_units', 'source_dependencies'):
+                    if key in geometry:
+                        req[key] = geometry[key]
+                req.update(
+                    target='interior', entities=[],
+                    method=self.method.currentData(), count=self.count.value(),
+                    seed=(base_seed + len(requests) * 997) % 2147483647, label=lbl,
+                    resolution=self.resolution.currentData(), compute_mode=self.compute_mode.currentData(),
+                    cpu_threads=self.cpu_threads.value() if self.compute_mode.currentData() == 'multicore' else 1,
+                )
+                self._attach_pinn_options(req)
+                requests.append(req)
+        except ValueError as error:
+            QMessageBox.information(self, 'Batch sampling', str(error))
+            return
+        if not requests:
+            QMessageBox.information(self, 'Batch sampling', 'Define boundary regions or open a closed domain first.')
+            return
+        self.generate_batch_requests(requests)
+
+    def generate_batch_requests(self, requests):
+        if self.process or self.window.import_process or self.window.saving_project or self.window.project_io is not None:
+            return
+        self.history_before_generation = self.window.edit_snapshot()
+        process = QProcess(self)
+        self.process = process
+        self.cancelled = False
+        self.replace_label = None
+        self.pending_area = requests[0]
+        self._pending_batch_list = list(requests)
+        for req in requests:
+            self.window.sampled_areas.set_area(req, 'Generating')
+        self.set_busy(True)
+        self.summary.setText(f'Batch generating {len(requests)} datasets…')
+        self.window.statusBar().showMessage(f'Batch generating {len(requests)} datasets…')
+        process.started.connect(lambda: self.write_request(process, requests))
+        process.finished.connect(lambda code, status: self.finished(process, code))
+        process.errorOccurred.connect(lambda error: self.finished(process, -1) if error == QProcess.ProcessError.FailedToStart else None)
+        process.start(sys.executable, ['-m', 'jorvik.sampling'])
+
     def generate_request(self, request, replace_label=None):
         if self.process or self.window.import_process or self.window.saving_project or self.window.project_io is not None:
             return
@@ -305,6 +516,7 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.cancelled = False
         self.replace_label = replace_label
         self.pending_area = request
+        self._pending_batch_list = None
         if replace_label is None:
             self.window.sampled_areas.set_area(request, 'Generating')
         self.set_busy(True)
@@ -323,16 +535,35 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         if self.process is not process:
             return
         self.process = None
+        pending_list = self._pending_batch_list
+        self._pending_batch_list = None
         self.set_busy(False)
         try:
             if self.cancelled:
-                if self.replace_label is None:
+                if pending_list is not None:
+                    for req in pending_list:
+                        self.window.sampled_areas.set_area(req, 'Not generated (cancelled)')
+                elif self.replace_label is None:
                     self.window.sampled_areas.set_area(self.pending_area, 'Not generated (cancelled)')
                 self.summary.setText('Generation cancelled. Existing datasets retained.')
                 return
             if code:
                 raise ValueError(bytes(process.readAllStandardError()).decode(errors='replace')[-2000:] or 'Sampling process could not start.')
-            batch = json.loads(bytes(process.readAllStandardOutput()))
+            payload = json.loads(bytes(process.readAllStandardOutput()))
+            if isinstance(payload, list):
+                if not payload or any(b['document'] != self.window.geometry['document'] for b in payload):
+                    raise ValueError('The geometry changed during batch generation.')
+                for batch in payload:
+                    self.batches.append(batch)
+                    self.window.sampled_areas.set_area(batch)
+                total_pts = sum(b['count'] for b in payload)
+                labels_str = ', '.join(b['label'] for b in payload)
+                self.label.setText(self.next_available_label(payload[-1]['label']))
+                self.summary.setText(f"Batch generated {len(payload)} datasets ({total_pts} total points): {labels_str}")
+                self.refresh_preview()
+                self.window.statusBar().showMessage(f"Batch generated {len(payload)} datasets ({total_pts} points)")
+                return
+            batch = payload
             if batch['document'] != self.window.geometry['document']:
                 raise ValueError('The geometry changed during generation.')
             if self.replace_label is not None:
@@ -359,12 +590,16 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
             self.refresh_preview()
             self.window.statusBar().showMessage(f"Generated {batch['count']} points for {batch['label']}")
         except (ValueError, KeyError) as error:
-            if self.replace_label is None:
+            if pending_list is not None:
+                for req in pending_list:
+                    self.window.sampled_areas.set_area(req, 'Not generated (failed)')
+            elif self.replace_label is None:
                 self.window.sampled_areas.set_area(self.pending_area, 'Not generated (failed)')
             self.summary.setText('Generation failed. Existing datasets retained.')
             QMessageBox.warning(self, 'Sampling failed', str(error))
         finally:
-            self.window.record_edit('regenerate dataset' if self.replace_label else 'generate dataset', self.history_before_generation)
+            action_name = 'batch generate datasets' if pending_list is not None else ('regenerate dataset' if self.replace_label else 'generate dataset')
+            self.window.record_edit(action_name, self.history_before_generation)
             process.deleteLater()
 
     def stop(self):
@@ -390,14 +625,22 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.window.update_selection()
 
     def preview_style(self):
-        return {'visible': self.show_points.isChecked(),
-                'through': self.through.isChecked(), 'size': self.point_size.value(),
-                'hiddenLabels': self.window.sampled_areas.hidden_labels(),
-                'isolatedLabel': self.window.isolated_label(),
-                'colours': self.window.sampled_areas.colours()}
+        return {
+            'visible': self.show_points.isChecked(),
+            'through': self.through.isChecked(),
+            'size': self.point_size.value(),
+            'hiddenLabels': self.window.sampled_areas.hidden_labels(),
+            'isolatedLabel': self.window.isolated_label(),
+            'colours': self.window.sampled_areas.colours(),
+            'colorBy': self.color_by.currentData(),
+            'colormap': self.colormap.currentData(),
+            'vectorMode': self.vector_mode.currentData(),
+            'glyphScale': round(self.glyph_scale.value() / 100.0, 2),
+        }
 
     def refresh_style(self):
         self.size_label.setText(f'{self.point_size.value()} px')
+        self.glyph_scale_label.setText(f'{self.glyph_scale.value() / 100.0:.1f}×')
         self.window.settings.setValue('sampling/point_size', self.point_size.value())
         self.window.view.set_sample_style(self.preview_style())
 

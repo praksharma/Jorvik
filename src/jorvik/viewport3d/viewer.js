@@ -7,8 +7,9 @@ import {LineSegmentsGeometry} from './vendor/lines/LineSegmentsGeometry.js';
 import {LineMaterial} from './vendor/lines/LineMaterial.js';
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(38,1,.01,10000);
-const renderer=new THREE.WebGLRenderer({antialias:true});
+const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.autoClear=false;
+renderer.localClippingEnabled=true;
 document.body.appendChild(renderer.domElement);
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enableDamping=true;controls.screenSpacePanning=true;
@@ -21,6 +22,7 @@ scene.add(new THREE.HemisphereLight(0xffffff,0x708080,2));
 const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(1,2,3);scene.add(light);
 let objects=[],faces=[],edges=[],documentId='',mode='face',selected=new Set(),hover=null;
 let center=new THREE.Vector3(),radius=15,down=null;
+let geomBoxMin=new THREE.Vector3(-1,-1,-1),geomBoxMax=new THREE.Vector3(1,1,1);
 const raycaster=new THREE.Raycaster();
 const key=o=>`${o.userData.dimension}:${o.userData.tag}`;
 let boundaryColours=new Map();
@@ -33,7 +35,39 @@ function setBoundaryRegions(regions){
   recolor();
 }
 let palette={face:0x75a8b5,edge:0x304650};
-let sampleObjects=[];
+let sampleObjects=[],glyphObjects=[];
+let shadingMode='opaque';
+let clipConfig={axis:'off',position:0.0,flip:false,clipSamples:false};
+let activeClipPlane=null;
+let scalarRange=null;
+const COLORMAPS={
+  viridis:[
+    [0.267,0.005,0.329],[0.283,0.141,0.458],[0.254,0.265,0.530],[0.207,0.372,0.553],
+    [0.164,0.471,0.558],[0.128,0.567,0.551],[0.135,0.659,0.518],[0.267,0.749,0.441],
+    [0.478,0.821,0.318],[0.741,0.873,0.150],[0.993,0.906,0.144]
+  ],
+  plasma:[
+    [0.050,0.030,0.528],[0.254,0.014,0.615],[0.417,0.001,0.658],[0.563,0.051,0.642],
+    [0.693,0.165,0.565],[0.798,0.280,0.470],[0.881,0.393,0.383],[0.949,0.518,0.296],
+    [0.988,0.652,0.211],[0.988,0.805,0.145],[0.940,0.975,0.131]
+  ],
+  coolwarm:[
+    [0.230,0.299,0.754],[0.383,0.509,0.917],[0.554,0.690,0.996],[0.722,0.814,0.976],
+    [0.865,0.865,0.865],[0.960,0.768,0.678],[0.957,0.603,0.483],[0.867,0.374,0.296],[0.706,0.016,0.150]
+  ]
+};
+const COLORMAP_CSS={
+  viridis:'linear-gradient(90deg, #440154 0%, #3b528b 25%, #21918c 50%, #5ec962 75%, #fde725 100%)',
+  plasma:'linear-gradient(90deg, #0d0887 0%, #7e03a8 25%, #cc4778 50%, #f89540 75%, #f0f921 100%)',
+  coolwarm:'linear-gradient(90deg, #3b4cc0 0%, #8db0fe 25%, #dddddd 50%, #f49a7b 75%, #b40426 100%)'
+};
+function evalColormap(name,t){
+  const stops=COLORMAPS[name]||COLORMAPS.viridis;
+  const u=Math.max(0,Math.min(1,Number.isFinite(t)?t:0.5))*(stops.length-1);
+  const idx=Math.min(stops.length-2,Math.floor(u)),frac=u-idx;
+  const a=stops[idx],b=stops[idx+1];
+  return [a[0]+(b[0]-a[0])*frac,a[1]+(b[1]-a[1])*frac,a[2]+(b[2]-a[2])*frac];
+}
 let translationPreview=null,previewOffset=new THREE.Vector3();
 let previewMatrix=new THREE.Matrix4(),baseCenter=new THREE.Vector3(),baseRadius=15;
 let baseGridMatrix=new THREE.Matrix4(),baseAxesMatrix=new THREE.Matrix4();
@@ -58,9 +92,53 @@ function setGeometryVisibility(config){
   }
   hover=null;recolor();
 }
+function setShadingMode(modeName){
+  shadingMode=['opaque','translucent','wireframe'].includes(modeName)?modeName:'opaque';
+  for(const face of faces){
+    face.material.wireframe=shadingMode==='wireframe';
+    face.material.transparent=shadingMode==='translucent';
+    face.material.opacity=shadingMode==='translucent'?0.32:1.0;
+    face.material.depthWrite=shadingMode!=='translucent';
+    face.material.needsUpdate=true;
+  }
+}
+function applyClippingPlanes(){
+  const axis=clipConfig.axis;
+  if(!['x','y','z'].includes(axis)){
+    activeClipPlane=null;
+  }else{
+    const idx=axis==='x'?0:(axis==='y'?1:2);
+    const low=geomBoxMin.getComponent(idx),high=geomBoxMax.getComponent(idx);
+    const span=Math.max(high-low,1e-6);
+    const coord=0.5*(low+high)+0.5*span*Math.max(-1,Math.min(1,Number(clipConfig.position)||0));
+    const sign=clipConfig.flip?1:-1;
+    const normal=new THREE.Vector3(axis==='x'?sign:0,axis==='y'?sign:0,axis==='z'?sign:0);
+    activeClipPlane=new THREE.Plane(normal,-sign*coord);
+  }
+  const cadPlanes=activeClipPlane?[activeClipPlane]:[];
+  const samplePlanes=(activeClipPlane&&clipConfig.clipSamples)?[activeClipPlane]:[];
+  for(const object of objects){
+    object.material.clippingPlanes=cadPlanes;
+    object.material.needsUpdate=true;
+    if(object.userData.highlight){
+      object.userData.highlight.material.clippingPlanes=cadPlanes;
+      object.userData.highlight.material.needsUpdate=true;
+    }
+  }
+  for(const object of sampleObjects){
+    object.material.clippingPlanes=samplePlanes;
+    object.material.needsUpdate=true;
+  }
+  for(const object of glyphObjects){
+    object.material.clippingPlanes=samplePlanes;
+    object.material.needsUpdate=true;
+  }
+}
+function setClippingPlane(config){
+  clipConfig={...clipConfig,...config};
+  applyClippingPlanes();
+}
 function applyTranslationPreview(){
-  // The backend supplies one authoritative affine transform. Original vertex
-  // buffers never change, so repeated previews and scope changes cannot accrue.
   const matrix=new THREE.Matrix4();
   if(translationPreview?.matrix)matrix.fromArray(translationPreview.matrix);
   const whole=translationPreview?.scope==='domain';
@@ -78,6 +156,10 @@ function applyTranslationPreview(){
   objectMatrix(grid,geometryMatrix.clone().multiply(baseGridMatrix));
   objectMatrix(axes,geometryMatrix.clone().multiply(baseAxesMatrix));
   for(const object of sampleObjects){
+    const affected=whole||translationPreview?.regions.includes(object.userData.label);
+    objectMatrix(object,affected?matrix:new THREE.Matrix4());
+  }
+  for(const object of glyphObjects){
     const affected=whole||translationPreview?.regions.includes(object.userData.label);
     objectMatrix(object,affected?matrix:new THREE.Matrix4());
   }
@@ -115,13 +197,15 @@ function appearance(config){
   scene.background=new THREE.Color(config.canvas);grid.material.color.set(config.grid);
   grid.visible=config.showGrid;axes.visible=config.showAxes;
   const dark=new THREE.Color(config.canvas).getHSL({}).l<.4;
+  const hud=document.getElementById('colorbar-hud');
+  if(hud)hud.classList.toggle('dark',dark);
   palette={face:dark?0x6196ad:0x75a8b5,edge:dark?0xd0e4ec:0x304650};recolor();
 }
 function loadGeometry(data){
   translationPreview=null;previewOffset.set(0,0,0);previewMatrix.identity();
   for(const object of objects){scene.remove(object);object.traverse(part=>{part.geometry?.dispose();part.material?.dispose();});}
   objects=[];faces=[];edges=[];selected.clear();hover=null;down=null;documentId=data?.document??null;
-  if(!data){center.set(0,0,0);radius=15;grid.position.set(0,0,0);grid.scale.setScalar(1);axes.position.set(0,0,0);axes.scale.setScalar(1);rememberGeometryFrame();orient(0);return;}
+  if(!data){center.set(0,0,0);radius=15;geomBoxMin.set(-1,-1,-1);geomBoxMax.set(1,1,1);grid.position.set(0,0,0);grid.scale.setScalar(1);axes.position.set(0,0,0);axes.scale.setScalar(1);rememberGeometryFrame();orient(0);return;}
   const box=new THREE.Box3();
   for(const entity of data.entities){
     if(!entity.positions.length)continue;
@@ -133,7 +217,6 @@ function loadGeometry(data){
     }else{object=new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color:palette.edge}));edges.push(object);}
     object.userData={dimension:entity.dimension,tag:entity.tag};
     if(entity.dimension===1){
-      // Screen-space ribbons: native WebGL lines remain one pixel on most GPUs.
       const highlight=new LineSegments2(new LineSegmentsGeometry().setPositions(entity.positions),
         new LineMaterial({color:0xe89a34,linewidth:6,worldUnits:false,depthTest:true,depthWrite:false}));
       highlight.visible=false;
@@ -141,14 +224,16 @@ function loadGeometry(data){
     }
     objects.push(object);scene.add(object);box.expandByObject(object);
   }
+  geomBoxMin.copy(box.min);geomBoxMax.copy(box.max);
   box.getCenter(center);radius=Math.max(box.getSize(new THREE.Vector3()).length()*.6,1e-6);
   grid.position.copy(center);grid.position.z=box.min.z-radius*.005;grid.scale.setScalar(radius/8);
   axes.position.copy(box.min);axes.scale.setScalar(radius/8);
+  setShadingMode(shadingMode);
+  applyClippingPlanes();
   rememberGeometryFrame();orient(data.dimension===2?1:0);recolor();
 }
 function setMode(value){
   mode=value==='edge'?'edge':'face';hover=null;down=null;recolor();
-  // Distinct cursors accompany the explicit toolbar modes.
   renderer.domElement.style.cursor=mode==='face'?'crosshair':'cell';
 }
 function setSelection(values){selected=new Set(values.map(([d,t])=>`${d}:${t}`));recolor();}
@@ -159,12 +244,14 @@ function pickAt(x,y){
   const frontSurface=(sx,sy)=>{
     raycaster.setFromCamera(new THREE.Vector2((sx-rect.left)/rect.width*2-1,1-(sy-rect.top)/rect.height*2),camera);
     return raycaster.intersectObjects(visibleFaces,false).find(hit=>{
+      if(activeClipPlane&&activeClipPlane.distanceToPoint(hit.point)<0)return false;
       const z=hit.point.clone().project(camera).z;return z>=-1&&z<=1;
     });
   };
-  if(mode==='face')return frontSurface(x,y)?.object||null;
-  // Compare projected segments in pixels, independent of target depth or zoom.
-  // A nearby edge is eligible only if its closest screen point is itself visible.
+  if(mode==='face'){
+    const hit=frontSurface(x,y);
+    return hit?{object:hit.object,point:hit.point}:null;
+  }
   const candidates=[];
   for(const object of edges){
     if(!object.visible)continue;
@@ -173,7 +260,6 @@ function pickAt(x,y){
       let a=new THREE.Vector3().fromBufferAttribute(positions,i).applyMatrix4(object.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
       let b=new THREE.Vector3().fromBufferAttribute(positions,i+1).applyMatrix4(object.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
       const da=-a.z,db=-b.z,delta=db-da;
-      // Clip segments to the camera's depth slab before perspective projection.
       if(Math.abs(delta)<1e-15){if(da<camera.near||da>camera.far)continue;}
       else{
         const t0=(camera.near-da)/delta,t1=(camera.far-da)/delta;
@@ -188,49 +274,184 @@ function pickAt(x,y){
       const t=length2?THREE.MathUtils.clamp(((x-ax)*dx+(y-ay)*dy)/length2,0,1):0;
       const sx=ax+t*dx,sy=ay+t*dy,pixels=Math.hypot(x-sx,y-sy);
       if(pixels>6)continue;
-      // Perspective-correct interpolation recovers the 3D point under (sx,sy).
       const u=(t/(-b.z))/((1-t)/(-a.z)+t/(-b.z));
       const point=a.clone().lerp(b,u).applyMatrix4(camera.matrixWorld);
-      candidates.push({object,sx,sy,pixels,distance:point.distanceTo(camera.position)});
+      if(activeClipPlane&&activeClipPlane.distanceToPoint(point)<0)continue;
+      candidates.push({object,point,sx,sy,pixels,distance:point.distanceTo(camera.position)});
     }
   }
   candidates.sort((a,b)=>a.pixels-b.pixels||a.distance-b.distance);
   for(const hit of candidates){
     const surface=frontSurface(hit.sx,hit.sy);
     const epsilon=Math.max(hit.distance,camera.near)*1e-6;
-    if(!surface||hit.distance<=surface.distance+epsilon)return hit.object;
+    if(!surface||hit.distance<=surface.distance+epsilon)return {object:hit.object,point:hit.point};
   }
   return null;
 }
 renderer.domElement.addEventListener('pointerdown',event=>{if(event.button===0)down={x:event.clientX,y:event.clientY,moved:false};});
 renderer.domElement.addEventListener('pointermove',event=>{
   if(down&&Math.hypot(event.clientX-down.x,event.clientY-down.y)>4)down.moved=true;
-  const object=event.buttons?null:pickAt(event.clientX,event.clientY);
-  hover=object?key(object):null;recolor();
+  const hit=event.buttons?null:pickAt(event.clientX,event.clientY);
+  const object=hit?.object||null;
+  const nextHover=object?key(object):null;
+  if(nextHover!==hover){
+    hover=nextHover;recolor();
+  }
+  if(hit?.point&&object){
+    window.geoBridge?.hovered(documentId,object.userData.dimension,object.userData.tag,hit.point.x,hit.point.y,hit.point.z);
+  }
 });
 renderer.domElement.addEventListener('pointerleave',()=>{hover=null;recolor();});
 renderer.domElement.addEventListener('pointercancel',()=>{down=null;});
 renderer.domElement.addEventListener('pointerup',event=>{
   const start=down;down=null;
   if(event.button!==0||!start||start.moved||Math.hypot(event.clientX-start.x,event.clientY-start.y)>4)return;
-  const object=pickAt(event.clientX,event.clientY);
+  const hit=pickAt(event.clientX,event.clientY);
+  const object=hit?.object||null;
   window.geoBridge?.picked(documentId,object?.userData.dimension||0,object?.userData.tag||0,event.ctrlKey||event.metaKey||event.shiftKey);
 });
-// One shared sprite keeps large clouds cheap: a light circle with a dark rim.
-// The outline preserves contrast on selected orange faces and light canvases.
 const pointCanvas=document.createElement('canvas');pointCanvas.width=pointCanvas.height=64;
 const pointContext=pointCanvas.getContext('2d');
 pointContext.fillStyle='#151515';pointContext.beginPath();pointContext.arc(32,32,30,0,Math.PI*2);pointContext.fill();
 pointContext.fillStyle='#ffffff';pointContext.beginPath();pointContext.arc(32,32,23,0,Math.PI*2);pointContext.fill();
 const pointTexture=new THREE.CanvasTexture(pointCanvas);pointTexture.colorSpace=THREE.SRGBColorSpace;
-let sampleStyle={size:7,visible:true,through:true,hiddenLabels:[],isolatedLabel:null,colours:{}};
+let sampleStyle={
+  size:7,visible:true,through:true,hiddenLabels:[],isolatedLabel:null,colours:{},
+  colorBy:'dataset',colormap:'viridis',scalarFieldLabel:'',vectorMode:'off',glyphScale:1.0
+};
+function buildArrowSegments(coords,vectors,arrowLen){
+  const n=Math.min(coords.length,vectors.length);
+  const buf=new Float32Array(n*18);
+  let k=0;
+  for(let i=0;i<n;i++){
+    const p=coords[i],v=vectors[i];
+    const vx=v[0],vy=v[1],vz=v[2];
+    const vlen=Math.hypot(vx,vy,vz);
+    if(vlen<1e-9)continue;
+    const dx=vx/vlen*arrowLen,dy=vy/vlen*arrowLen,dz=vz/vlen*arrowLen;
+    const tx=p[0]+dx,ty=p[1]+dy,tz=p[2]+dz;
+    // Main shaft
+    buf[k++]=p[0];buf[k++]=p[1];buf[k++]=p[2];
+    buf[k++]=tx;buf[k++]=ty;buf[k++]=tz;
+    // Ortho basis for arrowhead barbs
+    let ox=-dy,oy=dx,oz=0;
+    let olen=Math.hypot(ox,oy,oz);
+    if(olen<1e-6){ox=0;oy=-dz;oz=dy;olen=Math.hypot(ox,oy,oz);}
+    ox=ox/olen*arrowLen*0.18;oy=oy/olen*arrowLen*0.18;oz=oz/olen*arrowLen*0.18;
+    const bx=tx-dx*0.28,by=ty-dy*0.28,bz=tz-dz*0.28;
+    buf[k++]=tx;buf[k++]=ty;buf[k++]=tz;
+    buf[k++]=bx+ox;buf[k++]=by+oy;buf[k++]=bz+oz;
+    buf[k++]=tx;buf[k++]=ty;buf[k++]=tz;
+    buf[k++]=bx-ox;buf[k++]=by-oy;buf[k++]=bz-oz;
+  }
+  return buf.subarray(0,k);
+}
+function rebuildGlyphs(){
+  for(const g of glyphObjects){scene.remove(g);g.geometry.dispose();g.material.dispose();}
+  glyphObjects=[];
+  if(sampleStyle.vectorMode==='off'||!sampleObjects.length)return;
+  const arrowLen=Math.max(baseRadius,1e-3)*0.09*Math.max(0.1,Number(sampleStyle.glyphScale)||1.0);
+  for(const obj of sampleObjects){
+    const b=obj.userData.batchData;
+    if(!b||!b.coordinates?.length)continue;
+    const specs=[];
+    if(b.normals?.length===b.coordinates.length)specs.push([b.normals,0xf0a830]);
+    if(b.partner_normals?.length===b.coordinates.length)specs.push([b.partner_normals,0xe05a47]);
+    if(sampleStyle.vectorMode==='darboux'){
+      if(b.tangent_u?.length===b.coordinates.length)specs.push([b.tangent_u,0x29b6f6]);
+      if(b.tangent_v?.length===b.coordinates.length)specs.push([b.tangent_v,0x66bb6a]);
+    }
+    for(const [vecs,hexColor] of specs){
+      const segs=buildArrowSegments(b.coordinates,vecs,arrowLen);
+      if(!segs.length)continue;
+      const geom=new THREE.BufferGeometry();
+      geom.setAttribute('position',new THREE.BufferAttribute(segs,3));
+      const mat=new THREE.LineBasicMaterial({color:hexColor,depthTest:!sampleStyle.through});
+      const lines=new THREE.LineSegments(geom,mat);
+      lines.userData={label:b.label,segmentCount:segs.length/6};
+      lines.renderOrder=3;
+      lines.visible=obj.visible;
+      scene.add(lines);
+      glyphObjects.push(lines);
+    }
+  }
+  applyClippingPlanes();
+  applyTranslationPreview();
+}
+function updateScalarColorsAndHud(){
+  const hud=document.getElementById('colorbar-hud');
+  const useScalar=sampleStyle.colorBy&&sampleStyle.colorBy!=='dataset';
+  let minVal=Infinity,maxVal=-Infinity,hasScalar=false;
+  if(useScalar){
+    for(const obj of sampleObjects){
+      if(!obj.visible)continue;
+      const vals=obj.userData.batchData?.scalars;
+      if(Array.isArray(vals)&&vals.length===obj.geometry.attributes.position.count){
+        for(const v of vals){
+          if(Number.isFinite(v)){if(v<minVal)minVal=v;if(v>maxVal)maxVal=v;hasScalar=true;}
+        }
+      }
+    }
+  }
+  if(!useScalar||!hasScalar){
+    scalarRange=null;
+    if(hud)hud.style.display='none';
+    for(const obj of sampleObjects){
+      obj.material.vertexColors=false;
+      obj.material.color.set(sampleStyle.colours[obj.userData.label]??obj.userData.defaultColour);
+      obj.material.needsUpdate=true;
+    }
+    return;
+  }
+  scalarRange=[minVal,maxVal];
+  const span=maxVal-minVal;
+  const cmap=sampleStyle.colormap||'viridis';
+  for(const obj of sampleObjects){
+    const vals=obj.userData.batchData?.scalars;
+    const count=obj.geometry.attributes.position.count;
+    if(Array.isArray(vals)&&vals.length===count){
+      const rgb=new Float32Array(count*3);
+      for(let i=0,j=0;i<count;i++,j+=3){
+        const t=span>1e-15?(vals[i]-minVal)/span:0.5;
+        const c=evalColormap(cmap,t);
+        rgb[j]=c[0];rgb[j+1]=c[1];rgb[j+2]=c[2];
+      }
+      obj.geometry.setAttribute('color',new THREE.BufferAttribute(rgb,3));
+      obj.material.vertexColors=true;
+      obj.material.color.set(0xffffff);
+      obj.material.needsUpdate=true;
+    }else{
+      obj.material.vertexColors=false;
+      obj.material.color.set(sampleStyle.colours[obj.userData.label]??obj.userData.defaultColour);
+      obj.material.needsUpdate=true;
+    }
+  }
+  if(hud){
+    const fmt=v=>Math.abs(v)>=1e4||(Math.abs(v)>0&&Math.abs(v)<1e-3)?v.toExponential(2):Number(v.toPrecision(4)).toString();
+    document.getElementById('colorbar-title').textContent=sampleStyle.scalarFieldLabel||sampleStyle.colorBy;
+    document.getElementById('colorbar-gradient').style.background=COLORMAP_CSS[cmap]||COLORMAP_CSS.viridis;
+    document.getElementById('colorbar-min').textContent=fmt(minVal);
+    document.getElementById('colorbar-mid').textContent=fmt(0.5*(minVal+maxVal));
+    document.getElementById('colorbar-max').textContent=fmt(maxVal);
+    hud.style.display='block';
+  }
+}
 function setSampleStyle(config){
+  const prevVec=sampleStyle.vectorMode,prevScale=sampleStyle.glyphScale;
   sampleStyle={...sampleStyle,...config};
   for(const object of sampleObjects){
-    object.material.color.set(sampleStyle.colours[object.userData.label]??object.userData.defaultColour);
     object.material.size=sampleStyle.size;
     object.material.depthTest=!sampleStyle.through;
     object.visible=sampleStyle.visible&&!sampleStyle.hiddenLabels.includes(object.userData.label)&&(!sampleStyle.isolatedLabel||sampleStyle.isolatedLabel===object.userData.label);
+  }
+  updateScalarColorsAndHud();
+  if(prevVec!==sampleStyle.vectorMode||prevScale!==sampleStyle.glyphScale){
+    rebuildGlyphs();
+  }else{
+    for(const g of glyphObjects){
+      g.material.depthTest=!sampleStyle.through;
+      g.visible=sampleStyle.visible&&!sampleStyle.hiddenLabels.includes(g.userData.label)&&(!sampleStyle.isolatedLabel||sampleStyle.isolatedLabel===g.userData.label);
+    }
   }
 }
 function setSamples(config){
@@ -245,10 +466,23 @@ function setSamples(config){
     }
     geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
     const object=new THREE.Points(geometry,new THREE.PointsMaterial({color:colors[index%colors.length],map:pointTexture,alphaTest:0.15,sizeAttenuation:false,depthWrite:false}));
-    object.userData.label=batch.label;object.userData.defaultColour=colors[index%colors.length];object.renderOrder=2;
+    object.userData.label=batch.label;
+    object.userData.defaultColour=colors[index%colors.length];
+    object.userData.batchData=batch;
+    object.renderOrder=2;
     scene.add(object);sampleObjects.push(object);
   }
-  setSampleStyle({size:config.size??7,visible:config.visible,through:config.through,hiddenLabels:config.hiddenLabels??[],isolatedLabel:config.isolatedLabel??null,colours:config.colours??{}});
+  setSampleStyle({
+    size:config.size??7,visible:config.visible,through:config.through,
+    hiddenLabels:config.hiddenLabels??[],isolatedLabel:config.isolatedLabel??null,
+    colours:config.colours??{},colorBy:config.colorBy??sampleStyle.colorBy,
+    colormap:config.colormap??sampleStyle.colormap,
+    scalarFieldLabel:config.scalarFieldLabel??sampleStyle.scalarFieldLabel,
+    vectorMode:config.vectorMode??sampleStyle.vectorMode,
+    glyphScale:config.glyphScale??sampleStyle.glyphScale
+  });
+  rebuildGlyphs();
+  applyClippingPlanes();
   applyTranslationPreview();
 }
 function cameraState(){return {position:camera.position.toArray(),target:controls.target.toArray(),up:camera.up.toArray(),near:camera.near,far:camera.far};}
@@ -263,15 +497,33 @@ function transformedPoint(object){
 }
 function diagnostics(){
   const gl=renderer.getContext(),extension=gl.getExtension('WEBGL_debug_renderer_info');
-  return {renderer:gl.getParameter(extension?extension.UNMASKED_RENDERER_WEBGL:gl.RENDERER),
+  return {
+    renderer:gl.getParameter(extension?extension.UNMASKED_RENDERER_WEBGL:gl.RENDERER),
     vendor:gl.getParameter(extension?extension.UNMASKED_VENDOR_WEBGL:gl.VENDOR),
-    entityColours:Object.fromEntries(objects.map(o=>[key(o),`#${o.material.color.getHexString()}`])),version:gl.getParameter(gl.VERSION),lost:gl.isContextLost(),visibleFaces:faces.filter(o=>o.visible).length,visibleEdges:edges.filter(o=>o.visible).length,sampleColours:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,`#${o.material.color.getHexString()}`])),preview:translationPreview,sampleOffsets:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,o.position.toArray()])),geometryOffset:previewOffset.toArray(),geometryMatrix:previewMatrix.toArray(),
+    entityColours:Object.fromEntries(objects.map(o=>[key(o),`#${o.material.color.getHexString()}`])),
+    version:gl.getParameter(gl.VERSION),lost:gl.isContextLost(),
+    visibleFaces:faces.filter(o=>o.visible).length,visibleEdges:edges.filter(o=>o.visible).length,
+    sampleColours:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,`#${o.material.color.getHexString()}`])),
+    preview:translationPreview,
+    sampleOffsets:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,o.position.toArray()])),
+    geometryOffset:previewOffset.toArray(),geometryMatrix:previewMatrix.toArray(),
     sampleMatrices:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,o.matrix.toArray()])),
     firstSamplePoints:Object.fromEntries(sampleObjects.map(o=>[o.userData.label,transformedPoint(o)])),
     firstGeometryPoints:Object.fromEntries(objects.map(o=>[key(o),transformedPoint(o)])),
-    selectionCount:selected.size,pointSize:sampleStyle.size,sampleVisible:sampleStyle.visible,visibleSampleCount:sampleObjects.reduce((n,o)=>n+(o.visible?o.geometry.attributes.position.count:0),0),sampleCount:sampleObjects.reduce((n,o)=>n+o.geometry.attributes.position.count,0)};
+    selectionCount:selected.size,pointSize:sampleStyle.size,sampleVisible:sampleStyle.visible,
+    visibleSampleCount:sampleObjects.reduce((n,o)=>n+(o.visible?o.geometry.attributes.position.count:0),0),
+    sampleCount:sampleObjects.reduce((n,o)=>n+o.geometry.attributes.position.count,0),
+    shadingMode,clippingPlane:clipConfig,colorBy:sampleStyle.colorBy,colormap:sampleStyle.colormap,
+    scalarRange,vectorMode:sampleStyle.vectorMode,glyphScale:sampleStyle.glyphScale,
+    glyphObjectCount:glyphObjects.filter(g=>g.visible).length,
+    glyphSegmentCount:glyphObjects.reduce((n,g)=>n+(g.visible?(g.userData.segmentCount||0):0),0)
+  };
 }
-window.geoViewer={setBoundaryRegions,cameraState,setCameraState,setTranslationPreview,orient,appearance,loadGeometry,setMode,setSelection,setGeometryVisibility,setSamples,setSampleStyle,diagnostics,reset:()=>orient(0)};
+window.geoViewer={
+  setBoundaryRegions,cameraState,setCameraState,setTranslationPreview,orient,appearance,loadGeometry,
+  setMode,setSelection,setGeometryVisibility,setShadingMode,setClippingPlane,setSamples,setSampleStyle,
+  diagnostics,reset:()=>orient(0)
+};
 renderer.domElement.addEventListener('webglcontextlost',event=>{event.preventDefault();window.geoReportFailure('Graphics context lost. Restart the application.');});
 addEventListener('resize',resize);resize();appearance({canvas:'#fafcfc',grid:'#e2e7e8',showGrid:false,showAxes:true});orient(0);setMode('face');
 const clock=new THREE.Clock();renderer.setAnimationLoop(()=>{gizmo.update(clock.getDelta());controls.update();renderer.clear();renderer.render(scene,camera);gizmo.render();});

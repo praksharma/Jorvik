@@ -6,7 +6,7 @@ import json
 from PySide6.QtCore import QProcess, QSettings, Qt, QSize, QSignalBlocker, QTimer
 from PySide6.QtGui import QActionGroup, QColor
 from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QLabel,
-    QMainWindow, QMessageBox, QToolBar, QTreeWidget, QTreeWidgetItem, QFileDialog, QAbstractItemView, QScrollArea, QSizePolicy, QSplitter, QMenu, QInputDialog, QColorDialog, QPushButton, QWidget, QVBoxLayout)
+    QMainWindow, QMessageBox, QToolBar, QTreeWidget, QTreeWidgetItem, QFileDialog, QAbstractItemView, QScrollArea, QSizePolicy, QSplitter, QMenu, QInputDialog, QColorDialog, QPushButton, QWidget, QVBoxLayout, QLineEdit, QSlider)
 from . import __version__
 from .theme import configure_theme
 from .viewport import Viewport
@@ -58,6 +58,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         file_menu.addSeparator()
         self.export_action = file_menu.addAction("&Export samples…", self.export_samples, "Ctrl+Alt+E")
         self.export_action.setEnabled(False)
+        self.screenshot_action = file_menu.addAction("Save viewport screenshot…", self.save_viewport_screenshot, "Ctrl+P")
         self.inspect_sweep_action = file_menu.addAction('Inspect exported sweep…', self.open_sweep_inspector)
         file_menu.addAction("&Quit", self.close, "Ctrl+Q")
         self.view_menu = self.menuBar().addMenu("&View")
@@ -66,7 +67,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.addToolBar(self.toolbar)
         self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.toolbar.setIconSize(QSize(24,24))
-        for action, icon in ((self.open_action,'open'),(self.export_action,'export')):
+        for action, icon in ((self.open_action,'open'),(self.export_action,'export'),(self.screenshot_action,'screenshot')):
             action.setToolTip(action.text().replace('&',''))
             self.icon_actions.append((action,icon))
             self.toolbar.addAction(action)
@@ -126,7 +127,46 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.isolate_geometry_action.setEnabled(False)
         self.isolate_geometry_action.toggled.connect(self.update_isolation)
         visibility_menu.addAction(self.isolate_action);visibility_menu.addAction(self.isolate_geometry_action)
+
+        # CAD Surface Shading & Interactive 3D Clipping Plane controls
+        self.toolbar.addSeparator()
+        self.shading_combo = QComboBox()
+        for title, mode_key in [('Opaque', 'opaque'), ('Translucent (X-Ray)', 'translucent'), ('Wireframe', 'wireframe')]:
+            self.shading_combo.addItem(title, mode_key)
+        self.shading_combo.setToolTip('CAD surface shading mode (use Translucent X-Ray or Wireframe to inspect 3D interior points)')
+        self.shading_combo.currentIndexChanged.connect(lambda: self.view.set_shading_mode(self.shading_combo.currentData()))
+        self.toolbar.addWidget(self.shading_combo)
+
+        self.clip_axis_combo = QComboBox()
+        for title, axis_key in [('Clip: Off', 'off'), ('Clip X', 'x'), ('Clip Y', 'y'), ('Clip Z', 'z')]:
+            self.clip_axis_combo.addItem(title, axis_key)
+        self.clip_axis_combo.setToolTip('Slice 3D geometry along X, Y or Z to inspect interior volume collocation points')
+        self.clip_slider = QSlider(Qt.Orientation.Horizontal)
+        self.clip_slider.setRange(-100, 100)
+        self.clip_slider.setValue(0)
+        self.clip_slider.setFixedWidth(92)
+        self.clip_slider.setEnabled(False)
+        self.clip_slider.setToolTip('Clipping plane offset along the active axis (-100% to +100%)')
+        self.toolbar.addWidget(self.clip_axis_combo)
+        self.toolbar.addWidget(self.clip_slider)
+
+        clip_menu = self.view_menu.addMenu('Clipping plane')
+        self.clip_flip_action = clip_menu.addAction('Flip clipping side')
+        self.clip_flip_action.setCheckable(True)
+        self.clip_samples_action = clip_menu.addAction('Clip sample points too')
+        self.clip_samples_action.setCheckable(True)
+        self.clip_axis_combo.currentIndexChanged.connect(self.update_clipping_plane)
+        self.clip_slider.valueChanged.connect(self.update_clipping_plane)
+        self.clip_flip_action.toggled.connect(self.update_clipping_plane)
+        self.clip_samples_action.toggled.connect(self.update_clipping_plane)
+
         self.view.picked.connect(self.pick_entity)
+        self.view.hovered.connect(self.on_viewport_hovered)
+        self.tree_filter = QLineEdit()
+        self.tree_filter.setPlaceholderText('Filter faces, edges, groups or regions…')
+        self.tree_filter.setClearButtonEnabled(True)
+        self.tree_filter.setToolTip('Filter geometry entities, physical groups and regions by name, tag or CAD type')
+        self.tree_filter.textChanged.connect(self.filter_geometry_tree)
         tree = QTreeWidget()
         self.tree = tree
         tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -147,6 +187,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         sidebar = QWidget()
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.addWidget(self.tree_filter)
         sidebar_layout.addWidget(self.left_splitter)
         self.boundary_button = QPushButton('Boundary regions…')
         self.boundary_button.clicked.connect(self.open_boundary_regions)
@@ -535,6 +576,85 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.settings.setValue('export/directory', str(path.parent))
         self.statusBar().showMessage(f'Exported {len(self.sampling.batches)} datasets to {path}')
 
+    def save_viewport_screenshot(self, target_path=None):
+        if target_path is None:
+            directory = self.settings.value('export/directory', str(Path.home()))
+            stem = Path(self.geometry['source']).stem if self.geometry else 'jorvik_viewport'
+            filename, _ = QFileDialog.getSaveFileName(
+                self, 'Save viewport screenshot', str(Path(directory) / f'{stem}_viewport.png'),
+                'PNG image (*.png)',
+            )
+            if not filename:
+                return None
+            path = Path(filename)
+            if not path.suffix:
+                path = path.with_suffix('.png')
+        else:
+            path = Path(target_path)
+            if not path.suffix:
+                path = path.with_suffix('.png')
+        pixmap = self.view.grab()
+        if pixmap.isNull():
+            QMessageBox.warning(self, 'Screenshot failed', 'Could not capture the 3D viewport image.')
+            return None
+        from .export import atomic_write
+        try:
+            def writer(temp_path):
+                if not pixmap.save(str(temp_path), 'PNG'):
+                    raise OSError('Could not encode PNG image.')
+            atomic_write(path, writer)
+        except OSError as error:
+            QMessageBox.warning(self, 'Screenshot failed', str(error))
+            return None
+        self.settings.setValue('export/directory', str(path.parent))
+        self.statusBar().showMessage(f'Saved viewport screenshot to {path}')
+        return path
+
+    def update_clipping_plane(self):
+        axis = self.clip_axis_combo.currentData()
+        self.clip_slider.setEnabled(axis != 'off')
+        self.view.set_clipping_plane({
+            'axis': axis,
+            'position': round(self.clip_slider.value() / 100.0, 3),
+            'flip': bool(self.clip_flip_action.isChecked()),
+            'clipSamples': bool(self.clip_samples_action.isChecked()),
+        })
+
+    def filter_geometry_tree(self, query=''):
+        needle = str(query).strip().lower()
+
+        def filter_node(item):
+            text_match = needle in item.text(0).lower() or needle in (item.toolTip(0) or '').lower()
+            if item.childCount() == 0:
+                visible = not needle or text_match
+                item.setHidden(not visible)
+                return visible
+            any_child = False
+            for i in range(item.childCount()):
+                if filter_node(item.child(i)):
+                    any_child = True
+            visible = not needle or text_match or any_child
+            item.setHidden(not visible)
+            if needle and any_child:
+                item.setExpanded(True)
+            return visible
+
+        for i in range(self.tree.topLevelItemCount()):
+            filter_node(self.tree.topLevelItem(i))
+
+    def on_viewport_hovered(self, dimension, tag, x, y, z):
+        if not self.geometry:
+            return
+        kind = 'Face' if dimension == 2 else ('Edge' if dimension == 1 else 'Entity')
+        ent = next((e for e in self.geometry.get('entities', []) if e['dimension'] == dimension and e['tag'] == tag), None)
+        etype = f" · {ent['type']}" if ent and ent.get('type') else ''
+        ename = f" ({ent['name']})" if ent and ent.get('name') else ''
+        reg_names = [r['label'] for r in self.boundary_regions if [dimension, tag] in r.get('entities', [])]
+        reg_str = f" · Region: {', '.join(reg_names)}" if reg_names else ''
+        self.statusBar().showMessage(
+            f"{kind} {tag}{etype}{ename}{reg_str} | x={x:.4g}, y={y:.4g}, z={z:.4g}"
+        )
+
     def set_visibility(self, attribute, checked):
         setattr(self.view, attribute, checked)
         self.view.apply_theme()
@@ -693,6 +813,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
                 item.setToolTip(0, "Entities: " + ", ".join(map(str, group["entities"])))
         parent.setExpanded(True)
         self.tree.blockSignals(False)
+        self.filter_geometry_tree(self.tree_filter.text())
         self.view.set_geometry_visibility({'hiddenFaces': [], 'isolatedFaces': None})
         self.view.set_geometry(geometry)
         self.sampling.geometry_loaded()

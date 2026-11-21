@@ -9,9 +9,19 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 #orientation-gizmo:focus-visible{outline:2px solid #3786bd;outline-offset:-2px}
 .gizmo-home{position:absolute;right:6px;top:2px;border:1px solid #7d8c95;background:#f4f8fa;color:#24333c;border-radius:3px;height:24px;padding:0 5px;font:11px sans-serif;cursor:pointer}
 #error{position:absolute;inset:16px;font:14px sans-serif;color:#bd3549;white-space:pre-wrap;pointer-events:none;z-index:2}
+#colorbar-hud{position:absolute;left:14px;bottom:14px;min-width:176px;padding:8px 10px;border-radius:5px;border:1px solid rgba(125,140,149,0.45);background:rgba(248,251,252,0.92);color:#1f2f38;font:11px/1.35 system-ui,-apple-system,sans-serif;pointer-events:none;display:none;z-index:2;box-shadow:0 2px 6px rgba(0,0,0,0.12)}
+#colorbar-hud.dark{background:rgba(24,36,44,0.92);color:#e7eff2;border-color:rgba(125,140,149,0.35)}
+#colorbar-title{font-weight:600;margin-bottom:5px;letter-spacing:0.01em}
+#colorbar-gradient{height:11px;border-radius:3px;border:1px solid rgba(0,0,0,0.2);margin-bottom:4px}
+#colorbar-labels{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums;font-size:10px;opacity:0.92}
 </style>
 <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
 </head><body><div id="error" role="alert"></div>
+<div id="colorbar-hud" aria-label="Scalar field colorbar">
+  <div id="colorbar-title">Field</div>
+  <div id="colorbar-gradient"></div>
+  <div id="colorbar-labels"><span id="colorbar-min">0</span><span id="colorbar-mid">0.5</span><span id="colorbar-max">1</span></div>
+</div>
 <script>
 window.geoBridge=null;window.geoRendererReady=false;window.geoFailure=null;
 window.geoReportFailure=message=>{window.geoFailure=message;document.getElementById('error').textContent='3D renderer could not start: '+message;window.geoBridge?.failed(message);};

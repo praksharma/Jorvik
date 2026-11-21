@@ -2536,6 +2536,12 @@ workflows end to end and export their enriched NetCDF (`.nc`) and NumPy (`.npz`)
 | Task | Steps | Result |
 | --- | --- | --- |
 | Create a boundary region | Select edges/faces → **Boundary regions…** → name → **Save region** | Labels existing CAD entities; no geometry partitioning |
+| Filter CAD entities | Type a tag, CAD type or region name in **Filter faces, edges, groups or regions…** | Live tree filtering; clear to restore all items |
+| Batch sample all regions | **Sampling** → **Sample all regions + interior** | Generates all defined boundary regions + interior in one pass |
+| Color points by scalar field | **Sampling** → **Color points by** → choose $d(\mathbf{x})$, weight $w$, ADF, $H$, $K$, time $t$, or tag | Per-point scientific colormap (`Viridis`/`Plasma`/`Coolwarm`) + HUD colorbar |
+| Show 3D normal/tangent arrows | **Sampling** → **Vector arrows** → **Outward normals n** or **Darboux frame (n, t₁, t₂)** | 3D vector arrow glyphs with adjustable **Arrow scale** slider |
+| Inspect 3D interior points | Toolbar **Translucent (X-Ray)** / **Wireframe** or **Clip X / Y / Z** + slider | Cuts away or ghosts outer CAD faces to reveal 3D interior clouds |
+| Save viewport screenshot | `Ctrl+P` or **File → Save viewport screenshot…** (toolbar camera button) | Exports the live 3D viewport as a `.png` image |
 | Compare sampling methods | Generate a dataset, change method/seed, generate another | Separate labelled datasets you can show/hide |
 | Undo or redo an edit | `Ctrl+Z`; `Ctrl+Shift+Z` or `Ctrl+Y` | Restores supported edits within the current document's 30-entry history |
 | Duplicate or delete data | Right-click a sampled dataset → **Duplicate dataset** / **Delete dataset** | Undoable dataset edits; duplication does not resample |

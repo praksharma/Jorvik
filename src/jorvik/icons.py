@@ -19,6 +19,7 @@ PATHS = {
  'region': '<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="15" cy="10" r="1" fill="currentColor"/><circle cx="10" cy="16" r="1" fill="currentColor"/>',
  'isolate': '<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/>',
  'context': '<path d="m12 4 7 4v8l-7 4-7-4V8z M5 8l7 4 7-4M12 12v8 M2 5V2h3m14 0h3v3M2 19v3h3m14 0h3v-3"/>',
+ 'screenshot': '<path d="M4 7h3l2-2h6l2 2h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2z"/><circle cx="12" cy="13" r="3.5"/>',
 }
 
 

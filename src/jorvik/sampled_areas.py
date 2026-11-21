@@ -25,6 +25,27 @@ def area_details(area, status):
         details.append(f"Measure: {area['domain_measure']:.6g}")
     if status == 'Generated' and area.get('distance_status') == 'available':
         details.append('Boundary distance: available')
+        dists = area.get('boundary_distances')
+        if dists:
+            details.append(f"d(x) range: [{min(dists):.4g}, {max(dists):.4g}]")
+    if status == 'Generated' and area.get('adf_status') == 'available':
+        regs = ', '.join(area.get('adf_region_labels', []))
+        details.append(f"R-function ADF: available ({regs})")
+        adfs = area.get('adf_distances')
+        if adfs:
+            details.append(f"ADF range: [{min(adfs):.4g}, {max(adfs):.4g}]")
+    if status == 'Generated' and area.get('differential_geometry_status') == 'available':
+        details.append('Darboux tangent frame: available')
+        if area.get('curvature_status') == 'available' and area.get('mean_curvature'):
+            h_vals = area['mean_curvature']
+            details.append(f"Mean curvature H: [{min(h_vals):.4g}, {max(h_vals):.4g}]")
+    if status == 'Generated' and area.get('spacetime_status') == 'available':
+        tb = area.get('time_bounds', [0.0, 1.0])
+        wins = area.get('causal_window_count', 1)
+        details.append(f"Space-time: [{tb[0]:.4g}, {tb[1]:.4g}] ({wins} causal windows)")
+    if status == 'Generated' and isinstance(area.get('pairing'), dict):
+        p_info = area['pairing']
+        details.append(f"Pairing: {p_info.get('pair_kind', 'paired')} ({p_info.get('partner_label', p_info.get('role', ''))})")
     return details
 
 
