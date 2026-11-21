@@ -2470,6 +2470,67 @@ PINN demonstration covering batch sampling, boundary-distance refinement, `.geo`
 dimensional regeneration sweeps, topology-change rejection, harmonic Laplace flux
 conservation verification, and consolidated `xarray.DataTree` bundle loading.
 
+#### Geometry primitives for canonical PINN architectures
+
+Jorvik provides dedicated, physics-agnostic geometric modules for the five most
+influential PINN formulations (excluding domain-decomposition / finite-basis windowing):
+
+1. **Hard-Constrained Boundary PINNs (`jorvik.adf`)** *(Lagaris et al. 1998; Berg & Nyström 2018; Sukumar & Srivastava 2022)* —
+   `evaluate_adf_bundle` and `attach_adf_to_batch` join boundary region distance fields
+   via Rvachev R-equivalence of order $p$, providing $C^1$-smooth global and per-region
+   Approximate Distance Functions $\tilde{d}_k(\mathbf{x})$ (free of medial-axis gradient
+   jumps), analytical spatial gradients $\nabla \tilde{d}_k(\mathbf{x})$, and transfinite
+   inverse-distance blending weights $w_k(\mathbf{x})$ satisfying $\sum_k w_k(\mathbf{x}) = 1$
+   and $w_k|_{\Gamma_j} = \delta_{kj}$.
+2. **Periodic & Conformal Interface PINNs (`jorvik.paired`)** *(Raissi, Perdikaris & Karniadakis 2019; Dong & Ni 2021)* —
+   `sample_periodic_pair` generates pointwise-matched twin datasets on periodic boundary
+   pairs $(\Gamma_A, \Gamma_B)$ with verified CAD projection and anti-parallel outward normals,
+   while `sample_internal_interface` samples shared internal faces $\Gamma_{12} = \partial V_1 \cap \partial V_2$
+   in 3D multi-volume solids with both opposite outward unit normal fields (`normals` and `partner_normals`).
+3. **Manifold, Tangential-BC & Curvature PINNs (`jorvik.differential_geometry`)** *(Fang & Zhan 2020; Sahli Costabal, Perdikaris & Kuhl 2024)* —
+   `attach_differential_geometry` evaluates right-handed orthonormal Darboux tangent frames
+   $(\mathbf{t}_1, \mathbf{t}_2, \mathbf{n})$ and exact CAD principal, mean ($H$), and
+   Gaussian ($K$) curvatures from the first and second fundamental forms, and
+   `transport_differential_geometry` transports them through affine transformations.
+4. **Residual-Based Adaptive & Singularity-Refined PINNs (`jorvik.adaptive`)** *(Lu et al. 2021 DeepXDE; Yu et al. 2022; Wu et al. 2023)* —
+   `detect_singular_junctions` and `sample_with_singularity_refinement` automatically
+   concentrate collocation density around BC-region junctions and sharp corners, while
+   `adaptive_residual_resample` (RAD / RAR-D) and `adaptive_residual_augment` (RAR-G)
+   accept solver-evaluated PDE residual magnitudes $|r(\mathbf{x})|$ and return new
+   CAD-conformant batches with unbiased importance-corrected quadrature weights $w_i$.
+5. **Causal Space-Time PINNs (`jorvik.spacetime`)** *(Wang, Sankaran & Perdikaris 2024)* —
+   `sample_spacetime` couples spatial CAD sampling with scrambled low-discrepancy
+   timestamps $t_i \in [t_0, T]$, initial-condition slices $\{t_0\} \times \Omega$,
+   causal temporal window indices $m_i \in \{0, \dots, M-1\}$, and `causal_window_weights`
+   ($w_m = \exp(-\epsilon \sum_{k < m} \mathcal{L}_k)$).
+
+```python
+from jorvik.adf import attach_adf_to_batch
+from jorvik.paired import sample_periodic_pair, sample_internal_interface
+from jorvik.differential_geometry import attach_differential_geometry
+from jorvik.adaptive import adaptive_residual_resample, sample_with_singularity_refinement
+from jorvik.spacetime import sample_spacetime, causal_window_weights
+
+# 1. Smooth R-function ADFs and transfinite weights for hard-BC ansatz u(x) = g(x) + d_Omega(x) N_theta(x)
+adf_interior = attach_adf_to_batch(interior_batch, geometry, regions=regions, order=2.0)
+
+# 2. Pointwise-paired periodic boundary twins & multi-volume internal interfaces
+inlet_twin, outlet_twin = sample_periodic_pair(inlet_request, outlet_entities, translation="auto")
+interface_batch = sample_internal_interface(multi_solid_geometry, interface_request)
+
+# 3. Orthonormal Darboux tangent frames (t_1, t_2, n) & exact CAD curvatures (H, K)
+surface_with_curvatures = attach_differential_geometry(surface_batch)
+
+# 4. Wu et al. (2023) RAD adaptive resampling from PDE residual magnitudes
+rad_batch = adaptive_residual_resample(interior_request, probe_xyz, pde_residuals, k=2.0, c=0.5)
+
+# 5. Causal space-time QMC cylinder [t_0, T] x Omega + {t_0} x Omega initial slice
+st_batch, ic_batch = sample_spacetime(interior_request, time_bounds=(0.0, 1.0), causal_windows=8, include_initial=True)
+```
+
+Run `python examples/famous_pinn_paradigms.py` to execute all five PINN geometry
+workflows end to end and export their enriched NetCDF (`.nc`) and NumPy (`.npz`) bundles.
+
 #### Desktop shortcuts and common tasks
 
 | Task | Steps | Result |

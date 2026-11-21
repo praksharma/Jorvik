@@ -16,7 +16,20 @@ from .cad_import import validate_import_metadata, DEFAULT_UNITS
 
 _PREFIX = '_gs_'
 _RESERVED = {'xyz', 'file', 'allow_pickle', 'like'}
-ARRAY_FIELDS = ('coordinates', 'entity_tags', 'normals', 'weights', 'tangents', 'boundary_distances')
+ARRAY_FIELDS = (
+    'coordinates', 'entity_tags', 'normals', 'weights', 'tangents', 'boundary_distances',
+    'partner_normals', 'adf_distances', 'adf_gradients', 'region_adf_distances',
+    'region_adf_gradients', 'transfinite_weights', 'transfinite_weight_gradients',
+    'tangent_u', 'tangent_v', 'principal_curvature_1', 'principal_curvature_2',
+    'mean_curvature', 'gaussian_curvature', 'times', 'time_window_index',
+    'spacetime_weights', 'singularity_distances', 'rad_scores', 'interpolated_residuals',
+)
+_OPTIONAL_1D_FLOAT_FIELDS = (
+    'adf_distances', 'principal_curvature_1', 'principal_curvature_2',
+    'mean_curvature', 'gaussian_curvature', 'times', 'spacetime_weights',
+    'singularity_distances', 'rad_scores', 'interpolated_residuals',
+)
+_OPTIONAL_3D_VEC_FIELDS = ('partner_normals', 'adf_gradients', 'tangent_u', 'tangent_v')
 FLOAT_DTYPES = {'float64': np.float64, 'float32': np.float32}
 
 
@@ -133,6 +146,54 @@ def to_xarray(batches, *, float_dtype='float64', cancelled=None):
             coordinates[distance_name] = xr.DataArray(distances, dims=point_dim)
             variables[name].attrs['boundary_distances_coordinate'] = distance_name
             record['boundary_distances'] = distance_name
+        for field in _OPTIONAL_1D_FLOAT_FIELDS:
+            if field in batch and batch[field] is not None:
+                arr = np.asarray(batch[field], dtype=target_dtype)
+                if arr.shape != (batch['count'],) or not np.isfinite(arr).all():
+                    raise ValueError(f'{label}: {field} must be a finite 1D array of length count.')
+                cname = f'{_PREFIX}{field}_{index}'
+                coordinates[cname] = xr.DataArray(arr, dims=point_dim)
+                variables[name].attrs[f'{field}_coordinate'] = cname
+                record[field] = cname
+        if 'time_window_index' in batch and batch['time_window_index'] is not None:
+            arr_i32 = np.asarray(batch['time_window_index'], dtype=np.int32)
+            if arr_i32.shape != (batch['count'],):
+                raise ValueError(f'{label}: time_window_index must have length count.')
+            cname = f'{_PREFIX}time_window_index_{index}'
+            coordinates[cname] = xr.DataArray(arr_i32, dims=point_dim)
+            variables[name].attrs['time_window_index_coordinate'] = cname
+            record['time_window_index'] = cname
+        for field in _OPTIONAL_3D_VEC_FIELDS:
+            if field in batch and batch[field] is not None:
+                arr = np.asarray(batch[field], dtype=target_dtype)
+                if arr.shape != (batch['count'], 3) or not np.isfinite(arr).all():
+                    raise ValueError(f'{label}: {field} must be a finite N×3 array.')
+                cname = f'{_PREFIX}{field}_{index}'
+                coordinates[cname] = xr.DataArray(arr, dims=(point_dim, 'xyz'))
+                variables[name].attrs[f'{field}_coordinate'] = cname
+                record[field] = cname
+        if 'adf_region_labels' in batch and batch.get('region_adf_distances') is not None:
+            reg_dim = f'{_PREFIX}adf_region_{index}'
+            reg_labels = [str(r) for r in batch['adf_region_labels']]
+            coordinates[reg_dim] = xr.DataArray(reg_labels, dims=reg_dim)
+            for field in ('region_adf_distances', 'transfinite_weights'):
+                if field in batch and batch[field] is not None:
+                    arr = np.asarray(batch[field], dtype=target_dtype)
+                    if arr.shape != (batch['count'], len(reg_labels)) or not np.isfinite(arr).all():
+                        raise ValueError(f'{label}: {field} must be a finite N×K array.')
+                    cname = f'{_PREFIX}{field}_{index}'
+                    coordinates[cname] = xr.DataArray(arr, dims=(point_dim, reg_dim))
+                    variables[name].attrs[f'{field}_coordinate'] = cname
+                    record[field] = cname
+            for field in ('region_adf_gradients', 'transfinite_weight_gradients'):
+                if field in batch and batch[field] is not None:
+                    arr = np.asarray(batch[field], dtype=target_dtype)
+                    if arr.shape != (batch['count'], len(reg_labels), 3) or not np.isfinite(arr).all():
+                        raise ValueError(f'{label}: {field} must be a finite N×K×3 array.')
+                    cname = f'{_PREFIX}{field}_{index}'
+                    coordinates[cname] = xr.DataArray(arr, dims=(point_dim, reg_dim, 'xyz'))
+                    variables[name].attrs[f'{field}_coordinate'] = cname
+                    record[field] = cname
         records.append(record)
     units_set = {b.get('coordinate_units', DEFAULT_UNITS) for b in batches}
     coord_units = next(iter(units_set)) if len(units_set) == 1 else DEFAULT_UNITS

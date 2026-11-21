@@ -387,7 +387,21 @@ def transform_batches(batches, setup):
                 lengths = np.linalg.norm(normals, axis=1, keepdims=True)
                 if not np.isfinite(normals).all() or np.any(lengths == 0):
                     raise ValueError('Transform produced invalid boundary normals.')
-                record['normals'] = (normals / lengths).tolist()
+                unit_normals = normals / lengths
+                record['normals'] = unit_normals.tolist()
+                if 'partner_normals' in batch and batch['partner_normals'] is not None:
+                    record['partner_normals'] = (-unit_normals).tolist()
+        if affected and affine and batch.get('differential_geometry_status') == 'available':
+            from .differential_geometry import transport_differential_geometry
+            dg_updates = transport_differential_geometry(
+                batch, linear,
+                transformed_normals=record.get('normals') if record.get('normal_status') == 'available' else None,
+            )
+            for key, val in dg_updates.items():
+                if val is None:
+                    record.pop(key, None)
+                else:
+                    record[key] = val
         if affected and affine and 'weights' in batch:
             from .weights import transport_weights
             weight_updates = transport_weights(batch, linear, original_normals=original_normals)

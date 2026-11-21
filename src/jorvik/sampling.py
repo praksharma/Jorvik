@@ -287,6 +287,25 @@ def _verify_request_source(request):
     return path, digest
 
 
+def _load_geometry(source, source_hash, resolution=32, compute_mode='reproducible', cpu_threads=1):
+    """Open and verify a CAD source in a fresh headless Gmsh session; caller must call gmsh.finalize()."""
+    import gmsh
+    from .cad_import import open_source
+    path = Path(source).resolve()
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if digest != source_hash:
+        raise ValueError('Geometry source changed. Reopen it before sampling.')
+    gmsh.initialize(['jorvik'], readConfigFiles=False, interruptible=False)
+    try:
+        gmsh.option.setNumber('General.Terminal', 0)
+        gmsh.option.setNumber('General.NumThreads', int(cpu_threads))
+        open_source(gmsh, path)
+        return gmsh
+    except Exception:
+        gmsh.finalize()
+        raise
+
+
 def _sample_loaded_model(gmsh, request, path, digest, source_format, options, interior_domain, mode, threads, meshed_state):
     from .refinement import validate_refinement, evaluate_boundary_distance, refinement_density
     from .weights import measure_weights

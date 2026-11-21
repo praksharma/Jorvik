@@ -429,3 +429,16 @@ are outside the initial release; use the verified neutral export formats instead
       busy-state locks, document reset and saved-content dirty-state checks.
 - [x] Share immutable numeric buffers across snapshots; restore dataset visibility,
       selection, isolation and parameter references without rerunning generation.
+
+## Canonical PINN geometry primitives
+
+- [x] Smooth R-function Approximate Distance Functions (ADFs), spatial gradients and
+      Sukumar–Srivastava transfinite inverse-distance blending weights for hard-BC PINNs.
+- [x] Pointwise-paired periodic boundary twin sampling and conformal 3D multi-volume
+      internal interface sampling with opposite outward unit normal pairs.
+- [x] Right-handed orthonormal Darboux tangent frames and exact CAD principal, mean
+      and Gaussian curvatures for manifold/Laplace–Beltrami and tangential-BC PINNs.
+- [x] Automatic BC-region junction and sharp-corner singularity detection plus
+      solver-agnostic RAD (RAR-D) adaptive importance resampling and RAR-G greedy augmentation.
+- [x] Joint low-discrepancy space-time QMC sampling, initial-condition slices and
+      Wang–Sankaran–Perdikaris causal temporal window weights.
