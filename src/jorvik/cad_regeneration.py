@@ -133,10 +133,13 @@ def verify_topology_consistency(base_geometry, regenerated_geometry, batches=())
                 raise ValueError(f"Dataset {batch.get('label')!r} references an entity missing after regeneration.")
 
 
+_BASE_GEOMETRY_CACHE = {}
+
+
 def regenerate_batches(batches, overrides, *, base_geometry=None):
     """Regenerate .geo geometry with overrides and rerun each dataset's sampling recipe."""
     from .geometry import load_geometry
-    from .sampling import sample_geometry
+    from .sampling import sample_geometry_batch
     from .sampling_recipe import FIELDS
     batches = list(batches)
     if not batches:
@@ -158,18 +161,35 @@ def regenerate_batches(batches, overrides, *, base_geometry=None):
     validate_geo_overrides(overrides, declared)
     text = raw_bytes.decode('utf-8', errors='replace')
     modified_text = apply_geo_overrides_text(text, overrides)
+    cache_key = (str(source_path), digest)
+    if base_geometry is not None:
+        reference_geometry = base_geometry
+    elif cache_key in _BASE_GEOMETRY_CACHE:
+        reference_geometry = _BASE_GEOMETRY_CACHE[cache_key]
+    else:
+        reference_geometry = load_geometry(source_path)
+        if len(_BASE_GEOMETRY_CACHE) >= 16:
+            _BASE_GEOMETRY_CACHE.pop(next(iter(_BASE_GEOMETRY_CACHE)))
+        _BASE_GEOMETRY_CACHE[cache_key] = reference_geometry
     with tempfile.TemporaryDirectory(prefix='jorvik-regen-') as tmpdir:
-        temp_geo = Path(tmpdir) / source_path.name
+        tmpdir_path = Path(tmpdir)
+        for dep in reference_geometry.get('source_dependencies', []):
+            rel_posix = dep['path']
+            src_dep = (source_path.parent / rel_posix).resolve()
+            if src_dep.is_file():
+                dst_dep = (tmpdir_path / rel_posix).resolve()
+                dst_dep.parent.mkdir(parents=True, exist_ok=True)
+                dst_dep.write_bytes(src_dep.read_bytes())
+        temp_geo = tmpdir_path / source_path.name
         temp_geo.write_text(modified_text, encoding='utf-8')
         temp_hash = hashlib.sha256(temp_geo.read_bytes()).hexdigest()
-        reference_geometry = base_geometry if base_geometry is not None else load_geometry(source_path)
         regenerated_geometry = load_geometry(temp_geo)
         verify_topology_consistency(reference_geometry, regenerated_geometry, batches)
         regenerated_geometry['source'] = str(source_path)
         regenerated_geometry['source_hash'] = digest
         regenerated_geometry['document'] = first['document']
         regenerated_geometry['geo_overrides'] = deepcopy(overrides)
-        regenerated_batches = []
+        requests = []
         for batch in batches:
             request = {
                 'source': str(temp_geo),
@@ -188,7 +208,10 @@ def regenerate_batches(batches, overrides, *, base_geometry=None):
                 request['boundary_region'] = snapshot
             if 'refinement' in batch:
                 request['refinement'] = deepcopy(batch['refinement'])
-            fresh = sample_geometry(request)
+            requests.append(request)
+        sampled_results = sample_geometry_batch(requests)
+        regenerated_batches = []
+        for batch, fresh in zip(batches, sampled_results):
             fresh['source'] = str(source_path)
             fresh['source_hash'] = digest
             if 'boundary_region' in fresh and 'boundary_region' in batch:

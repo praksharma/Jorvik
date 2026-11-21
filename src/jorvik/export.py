@@ -17,6 +17,7 @@ from .cad_import import validate_import_metadata, DEFAULT_UNITS
 _PREFIX = '_gs_'
 _RESERVED = {'xyz', 'file', 'allow_pickle', 'like'}
 ARRAY_FIELDS = ('coordinates', 'entity_tags', 'normals', 'weights', 'tangents', 'boundary_distances')
+FLOAT_DTYPES = {'float64': np.float64, 'float32': np.float32}
 
 
 def validate_batch_header(batch, labels, source_identity):
@@ -59,12 +60,17 @@ def validate_tags(batch, tags=None):
     return tags
 
 
-def to_xarray(batches):
+def to_xarray(batches, *, float_dtype='float64', cancelled=None):
     """One N×3 data variable per label, with independent point dimensions.
 
     Ordinary identifier labels are variable names. Other labels use a stable
     internal name, retaining the original label in attrs and the label map.
     """
+    if float_dtype not in FLOAT_DTYPES:
+        raise ValueError("float_dtype must be 'float64' or 'float32'.")
+    if cancelled is not None and not callable(cancelled):
+        raise ValueError('Invalid cancellation callback.')
+    target_dtype = FLOAT_DTYPES[float_dtype]
     batches = list(batches)
     if not batches:
         raise ValueError('Generate samples before exporting.')
@@ -72,10 +78,12 @@ def to_xarray(batches):
     labels, records = set(), []
     source_identity = None
     for index, batch in enumerate(batches):
+        if cancelled is not None and cancelled():
+            raise InterruptedError('Export cancelled at within-file region checkpoint.')
         label, source_identity, dimension = validate_batch_header(batch, labels, source_identity)
         points = validate_points(batch)
-        if points is batch['coordinates']:
-            points = points.copy()
+        if points is batch['coordinates'] or points.dtype != target_dtype:
+            points = points.astype(target_dtype, copy=True)
         tags = validate_tags(batch)
         tags_i32 = tags.astype(np.int32, copy=tags is batch['entity_tags'])
         name = label if (re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', label)
@@ -95,32 +103,32 @@ def to_xarray(batches):
         normals = validate_normals(batch, tags=tags_i32)
         del tags
         if normals is not None:
-            if normals is batch['normals']:
-                normals = normals.copy()
+            if normals is batch['normals'] or normals.dtype != target_dtype:
+                normals = normals.astype(target_dtype, copy=True)
             normal_name = f'{_PREFIX}normals_{index}'
             coordinates[normal_name] = xr.DataArray(normals, dims=(point_dim, 'xyz'))
             variables[name].attrs['normals_coordinate'] = normal_name
             record['normals'] = normal_name
         weights = validate_weights(batch)
         if weights is not None:
-            if weights is batch['weights']:
-                weights = weights.copy()
+            if weights is batch['weights'] or weights.dtype != target_dtype:
+                weights = weights.astype(target_dtype, copy=True)
             weight_name = f'{_PREFIX}weights_{index}'
             coordinates[weight_name] = xr.DataArray(weights, dims=point_dim)
             variables[name].attrs['weights_coordinate'] = weight_name
             record['weights'] = weight_name
         tangents = validate_tangents(batch)
         if tangents is not None:
-            if tangents is batch['tangents']:
-                tangents = tangents.copy()
+            if tangents is batch['tangents'] or tangents.dtype != target_dtype:
+                tangents = tangents.astype(target_dtype, copy=True)
             tangent_name = f'{_PREFIX}tangents_{index}'
             coordinates[tangent_name] = xr.DataArray(tangents, dims=(point_dim, 'xyz'))
             variables[name].attrs['tangents_coordinate'] = tangent_name
             record['tangents'] = tangent_name
         distances = validate_distances(batch)
         if distances is not None:
-            if distances is batch['boundary_distances']:
-                distances = distances.copy()
+            if distances is batch['boundary_distances'] or distances.dtype != target_dtype:
+                distances = distances.astype(target_dtype, copy=True)
             distance_name = f'{_PREFIX}boundary_distances_{index}'
             coordinates[distance_name] = xr.DataArray(distances, dims=point_dim)
             variables[name].attrs['boundary_distances_coordinate'] = distance_name
@@ -130,20 +138,24 @@ def to_xarray(batches):
     coord_units = next(iter(units_set)) if len(units_set) == 1 else DEFAULT_UNITS
     manifest = {'schema_version': 2, 'jorvik_version': __version__,
                 'coordinate_units': coord_units, 'datasets': records}
+    if float_dtype != 'float64':
+        manifest['float_dtype'] = float_dtype
     return xr.Dataset(variables, coords=coordinates, attrs={
         'schema_version': 2, 'jorvik_version': __version__,
         'coordinate_units': manifest['coordinate_units'],
         'metadata_json': json.dumps(manifest, ensure_ascii=False, allow_nan=False)})
 
 
-def export_samples(batches, path):
+def export_samples(batches, path, *, float_dtype='float64', cancelled=None):
     """Write .nc or .npz, replacing the destination only after a complete write."""
     path = Path(path)
     if path.suffix.lower() not in ('.nc', '.npz'):
         raise ValueError('Choose a NetCDF (.nc) or NumPy (.npz) file.')
-    dataset = to_xarray(batches)
+    dataset = to_xarray(batches, float_dtype=float_dtype, cancelled=cancelled)
     temporary = None
     try:
+        if cancelled is not None and cancelled():
+            raise InterruptedError('Export cancelled before writing file.')
         with tempfile.NamedTemporaryFile(prefix=f'.{path.name}.', suffix='.tmp',
                                          dir=path.parent, delete=False) as stream:
             temporary = Path(stream.name)

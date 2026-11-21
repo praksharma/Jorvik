@@ -71,6 +71,20 @@ def save_project(path, geometry, areas, state, *, include_samples=True):
     data = source.read_bytes()
     if hashlib.sha256(data).hexdigest() != geometry['source_hash']:
         raise ValueError('Source geometry changed. Reopen it before saving.')
+    dep_payloads = []
+    for dep in geometry.get('source_dependencies', []):
+        if not isinstance(dep, dict) or not isinstance(dep.get('path'), str) or not isinstance(dep.get('sha256'), str):
+            raise ValueError('Invalid .geo dependency metadata.')
+        rel_posix = dep['path']
+        if not rel_posix or Path(rel_posix).is_absolute() or '..' in Path(rel_posix).parts:
+            raise ValueError('Invalid .geo dependency path.')
+        dep_file = (source.parent / rel_posix).resolve()
+        if not dep_file.is_file():
+            raise ValueError(f'Included .geo dependency is missing: {rel_posix}')
+        dep_bytes = dep_file.read_bytes()
+        if hashlib.sha256(dep_bytes).hexdigest() != dep['sha256']:
+            raise ValueError(f'Included .geo dependency changed: {rel_posix}. Reopen geometry before saving.')
+        dep_payloads.append((rel_posix, dep_bytes))
     metadata = {k: v for k, v in geometry.items() if k != 'entities'}
     metadata['entities'] = [{k:v for k,v in e.items() if k != 'positions'} for e in geometry['entities']]
     records=[]
@@ -101,6 +115,8 @@ def save_project(path, geometry, areas, state, *, include_samples=True):
         with zipfile.ZipFile(temporary,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=3) as archive:
             archive.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False,allow_nan=False))
             archive.writestr('source/model'+source.suffix.lower(),data)
+            for rel_posix, dep_bytes in dep_payloads:
+                archive.writestr('source_deps/'+rel_posix, dep_bytes)
             def array(name,value):
                 with archive.open(name,'w',force_zip64=True) as stream:
                     np.save(stream,np.asarray(value),allow_pickle=False)
@@ -156,8 +172,33 @@ def create_empty_project(path, *, overwrite=False):
     return path
 
 
-def load_project(path):
+def extract_project_sources(path, target_dir):
+    """Extract the verified main CAD source and any bundled .geo dependencies into target_dir."""
+    manifest, source = load_project(path)
+    geometry = manifest['geometry']
+    if geometry is None:
+        return None
+    target_dir = Path(target_dir).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    main_name = Path(geometry['name']).name if geometry.get('source_dependencies') else ('model' + manifest['source_extension'])
+    main_path = target_dir / main_name
+    main_path.write_bytes(source)
+    if geometry.get('source_dependencies'):
+        with zipfile.ZipFile(path) as archive:
+            for dep in geometry['source_dependencies']:
+                rel_posix = dep['path']
+                dest = (target_dir / rel_posix).resolve()
+                if not dest.is_relative_to(target_dir):
+                    raise ValueError('Invalid .geo dependency extraction target.')
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(archive.read('source_deps/' + rel_posix))
+    return main_path
+
+
+def load_project(path, *, as_numpy=False):
     """Fully validate before returning a candidate; never mutate the active project."""
+    if type(as_numpy) is not bool:
+        raise ValueError('as_numpy must be a boolean.')
     with zipfile.ZipFile(path) as archive:
         manifest=json.loads(archive.read('manifest.json'))
         if not isinstance(manifest, dict) or manifest.get('schema_version') not in (1, 2, 3):
@@ -184,6 +225,18 @@ def load_project(path):
             raise ValueError('Project source format differs from its embedded geometry.')
         if hashlib.sha256(source).hexdigest()!=geometry['source_hash']:
             raise ValueError('Project geometry checksum does not match.')
+        for dep in geometry.get('source_dependencies', []):
+            if not isinstance(dep, dict) or not isinstance(dep.get('path'), str) or not isinstance(dep.get('sha256'), str):
+                raise ValueError('Invalid .geo dependency metadata in project.')
+            rel_posix = dep['path']
+            if not rel_posix or Path(rel_posix).is_absolute() or '..' in Path(rel_posix).parts:
+                raise ValueError('Invalid .geo dependency path in project.')
+            archive_member = 'source_deps/' + rel_posix
+            if archive_member not in archive.namelist():
+                raise ValueError(f'Bundled .geo dependency is missing from project archive: {rel_posix}')
+            dep_bytes = archive.read(archive_member)
+            if hashlib.sha256(dep_bytes).hexdigest() != dep['sha256']:
+                raise ValueError('Project .geo dependency checksum does not match.')
         def array(name):
             with archive.open(name) as stream:
                 return np.load(stream,allow_pickle=False)
@@ -220,33 +273,33 @@ def load_project(path):
                 if area['entity_dimension'] != 3 and not {tuple(e) for e in area['entities']}<=keys:
                     raise ValueError('Region references missing geometry entities.')
                 points = validate_points(area, array(f'areas/{i}_coordinates.npy'))
-                area['coordinates'] = points.tolist()
+                area['coordinates'] = points if as_numpy else points.tolist()
                 del points
                 tags = validate_tags(area, array(f'areas/{i}_tags.npy'))
-                area['entity_tags'] = tags.tolist()
+                area['entity_tags'] = tags if as_numpy else tags.tolist()
                 raw_normals = array(f'areas/{i}_normals.npy') if record.get('has_normals') else None
                 normals = validate_normals(area, normals=raw_normals, tags=tags)
                 del tags, raw_normals
                 if normals is not None:
-                    area['normals'] = normals.tolist()
+                    area['normals'] = normals if as_numpy else normals.tolist()
                     del normals
                 raw_weights = array(f'areas/{i}_weights.npy') if record.get('has_weights') else None
                 raw_tangents = array(f'areas/{i}_tangents.npy') if record.get('has_tangents') else None
                 weights = validate_weights(area, weights=raw_weights, tangents=raw_tangents)
                 del raw_weights
                 if weights is not None:
-                    area['weights'] = weights.tolist()
+                    area['weights'] = weights if as_numpy else weights.tolist()
                     del weights
                 if raw_tangents is not None:
                     tangents = validate_tangents(area, tangents=raw_tangents)
                     del raw_tangents
-                    area['tangents'] = tangents.tolist()
+                    area['tangents'] = tangents if as_numpy else tangents.tolist()
                     del tangents
                 raw_distances = array(f'areas/{i}_distances.npy') if record.get('has_distances') else None
                 distances = validate_distances(area, distances=raw_distances)
                 del raw_distances
                 if distances is not None:
-                    area['boundary_distances'] = distances.tolist()
+                    area['boundary_distances'] = distances if as_numpy else distances.tolist()
                     del distances
         if manifest.get('samples_omitted'):
             from .sampling_recipe import request_from_area

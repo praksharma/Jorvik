@@ -56,10 +56,11 @@ def _prepare(batches, base_setup, configurations, file_format, fail_fast):
                 for parameter in definition['parameters']} if definition is not None else None)
     core_fields = ('schema_version', 'scope', 'regions', 'source_hash', 'translation',
                    'rotation_axis', 'rotation_angle', 'angle_units', 'scale', 'pivot', 'order', 'frame',
-                   'geo_parameters', 'geo_overrides')
+                   'geo_parameters', 'geo_overrides', 'region_transforms')
     core = {key: value for key, value in base_setup.items() if key in core_fields}
     _json(base_setup)
     identities, plan = set(), []
+    from .parameter_design import _apply_value
     for record in configurations:
         if not isinstance(record, dict): raise ValueError('Invalid configuration record.')
         identity = record.get('id')
@@ -91,14 +92,7 @@ def _prepare(batches, base_setup, configurations, file_format, fail_fast):
                 if (isinstance(domain, set) and value not in domain
                         or isinstance(domain, tuple) and not domain[0] <= value <= domain[1]):
                     raise ValueError('Configuration parameter is outside its declared design values.')
-                if target.startswith('geo:'):
-                    expected.setdefault('geo_overrides', {})[target[4:]] = value
-                elif target.startswith('translation_'):
-                    expected['translation']['xyz'.index(target[-1])] = value
-                elif target.startswith('scale_'):
-                    expected['scale']['xyz'.index(target[-1])] = value
-                elif target == 'rotation_angle': expected['rotation_angle'] = value
-                else: expected['scale'] = [value, value, value]
+                _apply_value(expected, target, value)
             if any(scalar.get(key) != value for key, value in expected.items()):
                 raise ValueError('Configuration transform differs from the base setup and declared parameters.')
         else:
@@ -196,7 +190,8 @@ def _callbacks(cancelled, progress):
 
 
 def export_sweep(batches, base_setup, configurations, destination, *,
-                 file_format='nc', fail_fast=True, cancelled=None, progress=None, consolidated=False):
+                 file_format='nc', fail_fast=True, cancelled=None, progress=None,
+                 consolidated=False, max_workers=1, float_dtype='float64'):
     """Export a generated scalar plan to a new directory and return its manifest.
 
     Cancellation is cooperative between files: the current atomic shard finishes
@@ -208,13 +203,19 @@ def export_sweep(batches, base_setup, configurations, destination, *,
     _callbacks(cancelled, progress)
     if type(consolidated) is not bool:
         raise ValueError('consolidated must be a boolean.')
+    if type(max_workers) is not int or not 1 <= max_workers <= 16:
+        raise ValueError('max_workers must be an integer between 1 and 16.')
+    if float_dtype not in ('float64', 'float32'):
+        raise ValueError("float_dtype must be 'float64' or 'float32'.")
     plan = _prepare(batches, base_setup, configurations, file_format, fail_fast)
     manifest = _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
-                          cancelled, progress, input_fingerprint(batches), {}, None)
+                          cancelled, progress, input_fingerprint(batches), {}, None,
+                          max_workers=max_workers, float_dtype=float_dtype)
     if consolidated and manifest['status'] == 'complete':
         from .sweep_container import export_consolidated_sweep
         bundle_name = f'sweep_bundle.{file_format}'
-        export_consolidated_sweep(destination, Path(destination) / bundle_name, require_integrity=True)
+        export_consolidated_sweep(destination, Path(destination) / bundle_name,
+                                  require_integrity=True, float_dtype=float_dtype, cancelled=cancelled)
         manifest['consolidated_bundle'] = bundle_name
         manifest['integrity']['consolidated_bundle'] = file_integrity(Path(destination) / bundle_name)
         _write_json(Path(destination) / 'manifest.json', manifest)
@@ -222,7 +223,8 @@ def export_sweep(batches, base_setup, configurations, destination, *,
 
 
 def _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
-               cancelled, progress, fingerprint, reuse, resumed_from):
+               cancelled, progress, fingerprint, reuse, resumed_from, *,
+               max_workers=1, float_dtype='float64'):
     started = time.monotonic()
     destination = Path(destination)
     # Exclusive creation protects existing complete and interrupted runs alike.
@@ -270,44 +272,86 @@ def _run_sweep(batches, base_setup, plan, destination, file_format, fail_fast,
         if 'design_filter' in manifest:
             manifest['integrity']['rejections'] = file_integrity(destination / 'rejections.json')
         checkpoint()
-        with (destination / manifest['results']).open('x', encoding='utf-8') as journal:
-            for record in plan:
-                if cancelled is not None and cancelled():
-                    manifest['status'] = 'cancelled'
-                    break
-                current_id = record['id']
-                current_error = None
-                result = {'id': current_id, 'status': 'complete',
-                          'point_counts': {batch['label']: batch['count'] for batch in batches}}
-                try:
-                    if current_id in reuse:
-                        original, expected = reuse[current_id]
-                        def copy(temporary):
-                            shutil.copyfile(original, temporary)
-                            from .sweep_integrity import verify_integrity
-                            verify_integrity(temporary, expected)
-                        atomic_write(destination / record['filename'], copy)
-                    else:
-                        export_configuration(batches, record['setup'], destination / record['filename'])
-                    result['integrity'] = file_integrity(destination / record['filename'])
-                except Exception as error:
-                    result.update(status='failed', error=str(error) or type(error).__name__)
-                    current_error = result['error']
-                    manifest['failed_count'] += 1
+        def _process_one(record):
+            cid = record['id']
+            res = {'id': cid, 'status': 'complete',
+                   'point_counts': {batch['label']: batch['count'] for batch in batches}}
+            try:
+                if cid in reuse:
+                    original, expected = reuse[cid]
+                    def copy(temporary):
+                        shutil.copyfile(original, temporary)
+                        from .sweep_integrity import verify_integrity
+                        verify_integrity(temporary, expected)
+                    atomic_write(destination / record['filename'], copy)
                 else:
-                    result['filename'] = record['filename']
-                    manifest['succeeded_count'] += 1
-                    if current_id in reuse:
-                        result['reused'] = True
-                        manifest['reused_count'] += 1
-                manifest['attempted_count'] += 1
-                journal.write(_json(result) + '\n')
-                journal.flush()
-                checkpoint()
-                if result['status'] == 'failed' and fail_fast:
-                    manifest['status'] = 'failed'
-                    break
+                    if float_dtype == 'float64':
+                        export_configuration(batches, record['setup'], destination / record['filename'])
+                    else:
+                        export_configuration(batches, record['setup'], destination / record['filename'],
+                                             float_dtype=float_dtype)
+                res['integrity'] = file_integrity(destination / record['filename'])
+            except Exception as error:
+                res.update(status='failed', error=str(error) or type(error).__name__)
             else:
+                res['filename'] = record['filename']
+                if cid in reuse:
+                    res['reused'] = True
+            return cid, res
+
+        with (destination / manifest['results']).open('x', encoding='utf-8') as journal:
+            stopped_early = False
+            if max_workers == 1:
+                for record in plan:
+                    if cancelled is not None and cancelled():
+                        manifest['status'] = 'cancelled'
+                        stopped_early = True
+                        break
+                    current_id, result = _process_one(record)
+                    current_error = result.get('error')
+                    if result['status'] == 'complete':
+                        manifest['succeeded_count'] += 1
+                        if result.get('reused'):
+                            manifest['reused_count'] += 1
+                    else:
+                        manifest['failed_count'] += 1
+                    manifest['attempted_count'] += 1
+                    journal.write(_json(result) + '\n')
+                    journal.flush()
+                    checkpoint()
+                    if result['status'] == 'failed' and fail_fast:
+                        manifest['status'] = 'failed'
+                        stopped_early = True
+                        break
+            else:
+                from concurrent.futures import ThreadPoolExecutor
+                for start_idx in range(0, len(plan), max_workers):
+                    if cancelled is not None and cancelled():
+                        manifest['status'] = 'cancelled'
+                        stopped_early = True
+                        break
+                    chunk = plan[start_idx:start_idx + max_workers]
+                    with ThreadPoolExecutor(max_workers=min(max_workers, len(chunk))) as pool:
+                        chunk_results = list(pool.map(_process_one, chunk))
+                    for current_id, result in chunk_results:
+                        current_error = result.get('error')
+                        if result['status'] == 'complete':
+                            manifest['succeeded_count'] += 1
+                            if result.get('reused'):
+                                manifest['reused_count'] += 1
+                        else:
+                            manifest['failed_count'] += 1
+                        manifest['attempted_count'] += 1
+                        journal.write(_json(result) + '\n')
+                        journal.flush()
+                        checkpoint()
+                        if result['status'] == 'failed' and fail_fast:
+                            manifest['status'] = 'failed'
+                            stopped_early = True
+                            break
+                    if stopped_early:
+                        break
+            if not stopped_early:
                 manifest['status'] = 'complete_with_errors' if manifest['failed_count'] else 'complete'
         manifest['all_outputs_complete'] = manifest['status'] == 'complete'
         checkpoint()

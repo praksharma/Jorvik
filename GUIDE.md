@@ -2438,6 +2438,38 @@ reloaded_tree = load_consolidated_sweep(bundle_path)
 assert reloaded_tree["regions/inner"].ds["coordinates"].shape == (6, 32, 3)
 ```
 
+#### Batch sampling, mesh convergence, per-region transforms and end-to-end PINN workflows
+
+Use `sample_geometry_batch` to sample multiple datasets on the same CAD source and
+resolution while preparing the Gmsh geometry and mesh only once, verify trimming/containment
+and mesh convergence with `jorvik.convergence`, or compose per-region transform chains
+with `region_transforms` and `verify_domain_consistency`:
+
+```python
+from jorvik.sampling import sample_geometry_batch
+from jorvik.convergence import mesh_convergence_report, validate_trimming_and_containment
+from jorvik.parametrisation import default_setup, transform_batches, verify_domain_consistency
+
+batches = sample_geometry_batch([inner_request, outer_request, interior_request])
+trim_check = validate_trimming_and_containment(batches[2])
+assert trim_check["status"] == "valid"
+
+conv = mesh_convergence_report(geometry, target="interior", resolutions=(16, 32, 64), count=128)
+assert conv["status"] == "converged"
+
+setup = default_setup("regions", ["inner"], region_transforms=[
+    {"regions": ["inner"], "translation": [0.05, 0.0, 0.0], "scale": [0.9, 0.9, 1.0]},
+])
+moved = transform_batches(batches, setup)
+consistency = verify_domain_consistency(batches, setup, moved)
+assert consistency["status"] == "unverified"
+```
+
+Run `python examples/pinn_parametric_workflow.py` for a complete headless parametric
+PINN demonstration covering batch sampling, boundary-distance refinement, `.geo`
+dimensional regeneration sweeps, topology-change rejection, harmonic Laplace flux
+conservation verification, and consolidated `xarray.DataTree` bundle loading.
+
 #### Desktop shortcuts and common tasks
 
 | Task | Steps | Result |

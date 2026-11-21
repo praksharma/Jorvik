@@ -5,24 +5,30 @@ import math
 import sys
 from pathlib import Path
 from uuid import uuid4
-from .cad_import import open_source, import_options, detect_coordinate_units
+from .cad_import import (
+    open_source, import_options, detect_coordinate_units,
+    detect_cad_header_metadata, extract_entity_metadata, discover_geo_dependencies,
+)
 from .cad_regeneration import discover_geo_parameters
-from .domains import domain_kind
+from .domains import domain_kind, classify_assembly
 
 
-def extract_topology(model, groups):
+def extract_topology(model, groups, entity_colours=None):
     """Capture original CAD entities without retaining backend objects or meshes."""
     records = []
     for dim, tag in model.getEntities():
         upward, downward = model.getAdjacencies(dim, tag)
-        records.append({
+        rec = {
             'dimension': int(dim), 'tag': int(tag),
             'type': model.getType(dim, tag), 'name': model.getEntityName(dim, tag),
             'bounds': list(map(float, model.getBoundingBox(dim, tag))),
             'boundary': [[dim - 1, int(t)] for t in sorted(set(downward))],
             'upward': [[dim + 1, int(t)] for t in sorted(set(upward))],
             'groups': [g['tag'] for g in groups if g['dimension'] == dim and tag in g['entities']],
-        })
+        }
+        if entity_colours and (int(dim), int(tag)) in entity_colours:
+            rec['colour'] = entity_colours[(int(dim), int(tag))]
+        records.append(rec)
     return records
 
 
@@ -51,7 +57,10 @@ def load_geometry(filename):
         groups = [{"dimension": d, "tag": t, "name": gmsh.model.getPhysicalName(d, t),
                    "entities": list(map(int, gmsh.model.getEntitiesForPhysicalGroup(d, t)))}
                   for d, t in gmsh.model.getPhysicalGroups()]
-        topology = extract_topology(gmsh.model, groups)
+        entity_colours, entity_meta = extract_entity_metadata(gmsh.model)
+        header_meta = detect_cad_header_metadata(path, source_format)
+        assembly = classify_assembly(gmsh.model)
+        topology = extract_topology(gmsh.model, groups, entity_colours)
         entities = []
         for dim, tag in [*faces, *edges]:
             vertices = []
@@ -72,23 +81,31 @@ def load_geometry(filename):
                               and gmsh.model.occ.getMass(dim, tag) <= max(scale, 1e-12) * 1e-12)
                 if not degenerate:
                     raise ValueError(f"Entity ({dim}, {tag}) has no display elements.")
-            entities.append({"dimension": dim, "tag": tag, "type": gmsh.model.getType(dim, tag),
-                             "name": gmsh.model.getEntityName(dim, tag), "degenerate": degenerate,
-                             "boundary": [list(e) for e in gmsh.model.getBoundary([(dim, tag)], oriented=False)],
-                             "groups": [g["tag"] for g in groups if g["dimension"] == dim and tag in g["entities"]],
-                             "positions": vertices})
+            ent_rec = {"dimension": dim, "tag": tag, "type": gmsh.model.getType(dim, tag),
+                       "name": gmsh.model.getEntityName(dim, tag), "degenerate": degenerate,
+                       "boundary": [list(e) for e in gmsh.model.getBoundary([(dim, tag)], oriented=False)],
+                       "groups": [g["tag"] for g in groups if g["dimension"] == dim and tag in g["entities"]],
+                       "positions": vertices}
+            if (dim, tag) in entity_colours:
+                ent_rec["colour"] = entity_colours[(dim, tag)]
+            entities.append(ent_rec)
         geometry = {"document": uuid4().hex, "source": str(path), "name": path.name,
                 "dimension": 2 if interior_domain == "planar" else 3,
                 "interior_domain": interior_domain,
                 "source_format": source_format, "import_options": import_options(gmsh, source_format),
                 "solid_count": len(gmsh.model.getEntities(3)),
                 "coordinate_units": detect_coordinate_units(path, source_format),
+                "cad_metadata": {**header_meta, **entity_meta},
+                "assembly": assembly,
                 "source_hash": hashlib.sha256(path.read_bytes()).hexdigest(),
                 "entities": entities, "groups": groups, "topology": topology}
         if source_format == "geo":
             geo_params = discover_geo_parameters(path)
             if geo_params:
                 geometry["geo_parameters"] = geo_params
+            geo_deps = discover_geo_dependencies(path)
+            if geo_deps:
+                geometry["source_dependencies"] = geo_deps
         from .topology import validate_topology
         validate_topology(geometry)
         return geometry

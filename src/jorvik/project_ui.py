@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 from PySide6.QtCore import Qt, QByteArray, QEventLoop, QTimer
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressBar
-from .project import save_project, load_project, PROJECT_EXTENSION, PROJECT_EXTENSIONS, PROJECT_FILTER
+from .project import save_project, load_project, extract_project_sources, PROJECT_EXTENSION, PROJECT_EXTENSIONS, PROJECT_FILTER
 from .recovery import RecoveryActions
 
 
@@ -204,15 +204,26 @@ class ProjectActions(RecoveryActions):
             # Retain a valid original path for relative .geo dependencies; otherwise
             # restore the embedded main CAD source without extracting arbitrary paths.
             path=Path(geometry['source'])
+            def check_on_disk():
+                if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != geometry['source_hash']:
+                    return False
+                for dep in geometry.get('source_dependencies', []):
+                    dep_file = (path.parent / dep['path']).resolve()
+                    if not dep_file.is_file() or hashlib.sha256(dep_file.read_bytes()).hexdigest() != dep['sha256']:
+                        return False
+                return True
             try:
-                valid=self.project_io_call(lambda: path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest()==geometry['source_hash'])
+                valid=self.project_io_call(check_on_disk)
             except OSError:
                 valid=False
             if self.project_cache and path.is_relative_to(self.project_cache.name):valid=False
             if not valid:
                 cache=tempfile.TemporaryDirectory(prefix='jorvik-project-')
-                path=Path(cache.name)/('model'+manifest['source_extension'])
-                self.project_io_call(lambda: path.write_bytes(source))
+                if geometry.get('source_dependencies'):
+                    path=self.project_io_call(lambda: extract_project_sources(filename, cache.name))
+                else:
+                    path=Path(cache.name)/('model'+manifest['source_extension'])
+                    self.project_io_call(lambda: path.write_bytes(source))
             geometry['source']=str(path)
             for record in manifest['areas']:
                 record['area']['source']=str(path)

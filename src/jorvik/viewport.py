@@ -103,12 +103,24 @@ class Viewport(QWidget):
         self.selection = []
         self.flush_geometry()
 
+    @staticmethod
+    def _js_samples(samples):
+        if not isinstance(samples, dict) or "batches" not in samples:
+            return samples
+        slim_batches = []
+        for batch in samples["batches"]:
+            coords = batch["coordinates"]
+            if not isinstance(coords, list):
+                coords = coords.tolist()
+            slim_batches.append({"label": batch["label"], "coordinates": coords})
+        return {**samples, "batches": slim_batches}
+
     def flush_geometry(self):
         self.call("loadGeometry", self.geometry)
         self.call("setBoundaryRegions", self.boundary_regions)
         self.call("setMode", self.mode)
         self.call("setSelection", self.selection)
-        self.call("setSamples", self.samples)
+        self.call("setSamples", self._js_samples(self.samples))
         self.call("setGeometryVisibility",self.geometry_visibility)
         self.call("setTranslationPreview", preview_payload(self.translation_preview))
         if self.camera_state:
@@ -124,7 +136,7 @@ class Viewport(QWidget):
 
     def set_samples(self, samples):
         self.samples = samples
-        self.call("setSamples", samples)
+        self.call("setSamples", self._js_samples(samples))
 
     def set_sample_style(self, style):
         self.samples.update(style)

@@ -58,6 +58,42 @@ def validate_setup(setup, batches=None):
         if 'geo_overrides' in setup:
             from .cad_regeneration import validate_geo_overrides
             validate_geo_overrides(setup['geo_overrides'], setup.get('geo_parameters'))
+        if 'region_transforms' in setup:
+            steps = setup['region_transforms']
+            if not isinstance(steps, list) or len(steps) > 32:
+                raise ValueError('region_transforms must be a list of at most 32 transform steps.')
+            for step in steps:
+                if not isinstance(step, dict):
+                    raise ValueError('Invalid region transform step.')
+                step_regions = step.get('regions')
+                if (not isinstance(step_regions, list) or not step_regions
+                        or any(not isinstance(r, str) or not r.strip() for r in step_regions)
+                        or len(set(step_regions)) != len(step_regions)):
+                    raise ValueError('Each region transform step needs a non-empty list of unique region labels.')
+                _vector(step.get('translation'), 'Step translation')
+                s_axis = _vector(step.get('rotation_axis', [0.0, 0.0, 1.0]), 'Step rotation axis')
+                if not np.any(s_axis):
+                    raise ValueError('Step rotation axis must be nonzero.')
+                s_angle = step.get('rotation_angle', 0.0)
+                if type(s_angle) is bool or type(s_angle) not in (int, float) or not np.isfinite(float(s_angle)):
+                    raise ValueError('Step rotation angle must be finite.')
+                if step.get('angle_units', 'degrees') not in ('degrees', 'radians'):
+                    raise ValueError('Choose degrees or radians for step rotation.')
+                s_scales = _vector(step.get('scale', [1.0, 1.0, 1.0]), 'Step scale')
+                if np.any(s_scales < 1e-8) or np.any(s_scales > 1e8):
+                    raise ValueError('Step scale factors must be positive and between 1e-8 and 1e8.')
+                _vector(step.get('pivot', [0.0, 0.0, 0.0]), 'Step pivot')
+                if step.get('order', ['scale', 'rotate', 'translate']) != ['scale', 'rotate', 'translate'] or step.get('frame', 'world') != 'world':
+                    raise ValueError('Use scale, rotate, translate order in the world coordinate frame.')
+                _affine_components({
+                    'schema_version': 2,
+                    'translation': step['translation'],
+                    'rotation_axis': step.get('rotation_axis', [0.0, 0.0, 1.0]),
+                    'rotation_angle': float(s_angle),
+                    'angle_units': step.get('angle_units', 'degrees'),
+                    'scale': step.get('scale', [1.0, 1.0, 1.0]),
+                    'pivot': step.get('pivot', [0.0, 0.0, 0.0]),
+                })
         # Check arithmetic before changing previews, saving setups or writing files.
         _affine_components(setup)
     if 'design' in setup:
@@ -103,11 +139,11 @@ def validate_setup(setup, batches=None):
                 raise ValueError('Selected configuration differs from its parameter design.')
             bindings = expected
         if bindings is not None:
-            from .parameter_design import TARGETS, is_geo_target
+            from .parameter_design import TARGETS, is_geo_target, is_region_target, parse_region_target
             if not isinstance(bindings, dict) or set(bindings) != set(parameters):
                 raise ValueError('Invalid named parameter bindings.')
             targets = list(bindings.values())
-            if (any(not isinstance(target, str) or (target not in TARGETS and not is_geo_target(target)) for target in targets)
+            if (any(not isinstance(target, str) or (target not in TARGETS and not is_geo_target(target) and not is_region_target(target)) for target in targets)
                     or len(set(targets)) != len(targets)
                     or 'uniform_scale' in targets and any(target.startswith('scale_') for target in targets)):
                 raise ValueError('Invalid or overlapping named parameter bindings.')
@@ -115,6 +151,21 @@ def validate_setup(setup, batches=None):
                 value = parameters[name]
                 if target.startswith('geo:'):
                     actual = setup.get('geo_overrides', {}).get(target[4:])
+                elif is_region_target(target):
+                    reg_label, base_target = parse_region_target(target)
+                    step = next((s for s in setup.get('region_transforms', []) if s.get('step_id') == f'design:{reg_label}'), None)
+                    if step is None:
+                        raise ValueError(f'Missing region transform step for {reg_label!r}.')
+                    if base_target.startswith('translation_'):
+                        actual = step['translation']['xyz'.index(base_target[-1])]
+                    elif base_target.startswith('scale_'):
+                        actual = step['scale']['xyz'.index(base_target[-1])]
+                    elif base_target == 'rotation_angle':
+                        actual = step['rotation_angle']
+                    else:
+                        if any(factor != value for factor in step['scale']):
+                            raise ValueError('Uniform scale parameter differs from the actual region transform.')
+                        actual = value
                 elif target.startswith('translation_'):
                     actual = setup['translation']['xyz'.index(target[-1])]
                 elif target.startswith('scale_'):
@@ -124,8 +175,9 @@ def validate_setup(setup, batches=None):
                     if any(factor != value for factor in setup['scale']):
                         raise ValueError('Uniform scale parameter differs from the actual transform.')
                     actual = value
-                expected_unit = ('source' if (target.startswith('translation_') or target.startswith('geo:')) else
-                                 setup['angle_units'] if target == 'rotation_angle' else 'dimensionless')
+                effective_target = parse_region_target(target)[1] if is_region_target(target) else target
+                expected_unit = ('source' if (effective_target.startswith('translation_') or target.startswith('geo:')) else
+                                 setup['angle_units'] if effective_target == 'rotation_angle' else 'dimensionless')
                 if actual != value or units[name] != expected_unit:
                     raise ValueError('Named parameter provenance differs from the actual transform.')
     if batches is not None:
@@ -135,8 +187,12 @@ def validate_setup(setup, batches=None):
         if (setup['source_hash'] != identity[1]
                 or any((b['document'], b['source_hash']) != identity for b in batches)):
             raise ValueError('This setup belongs to a different geometry. Create a new setup for this model.')
-        if set(labels) - {b['label'] for b in batches}:
+        known_labels = {b['label'] for b in batches}
+        if set(labels) - known_labels:
             raise ValueError('Some setup regions are missing or renamed. Select the regions again.')
+        for step in setup.get('region_transforms', []):
+            if set(step['regions']) - known_labels:
+                raise ValueError('A region transform step references a missing or renamed region.')
     return values
 
 
@@ -181,18 +237,112 @@ def preview_payload(setup):
     return dict(deepcopy(setup), matrix=_matrix(linear, offset).flatten(order='F').tolist())
 
 
+def _region_affine_chain(label, setup, base_linear, base_offset):
+    """Compose the base transform and any sequential region_transforms steps targeting label."""
+    affected = setup['scope'] == 'domain' or label in setup['regions']
+    net_linear = base_linear.copy() if affected else np.eye(3)
+    net_offset = base_offset.copy() if affected else np.zeros(3)
+    steps_applied = 1 if affected else 0
+    if setup['schema_version'] == 2:
+        for step in setup.get('region_transforms', []):
+            if label in step['regions']:
+                step_setup = {
+                    'schema_version': 2,
+                    'translation': step['translation'],
+                    'rotation_axis': step.get('rotation_axis', [0.0, 0.0, 1.0]),
+                    'rotation_angle': float(step.get('rotation_angle', 0.0)),
+                    'angle_units': step.get('angle_units', 'degrees'),
+                    'scale': step.get('scale', [1.0, 1.0, 1.0]),
+                    'pivot': step.get('pivot', [0.0, 0.0, 0.0]),
+                }
+                s_lin, s_off = _affine_components(step_setup)
+                net_linear = s_lin @ net_linear
+                net_offset = s_lin @ net_offset + s_off
+                affected = True
+                steps_applied += 1
+    return affected, net_linear, net_offset, steps_applied
+
+
+def verify_domain_consistency(batches, setup, transformed_batches=None):
+    """Check domain/boundary consistency, shared-entity coherence and outside-domain displacements."""
+    try:
+        if transformed_batches is None:
+            transformed_batches = transform_batches(batches, setup)
+    except Exception as error:
+        return {
+            'status': 'invalid_geometry',
+            'shared_boundary_status': 'invalid',
+            'outside_regions': [],
+            'warnings': [str(error)],
+        }
+    matrices = [np.asarray(b['parametrisation'].get('matrix', np.eye(4)), dtype=float) for b in transformed_batches]
+    all_equal = all(np.allclose(m, matrices[0], atol=1e-12) for m in matrices[1:]) and all(
+        b['parametrisation']['affected'] for b in transformed_batches
+    )
+    if all_equal:
+        return {
+            'status': 'consistent',
+            'shared_boundary_status': 'consistent',
+            'outside_regions': [],
+            'warnings': [],
+        }
+    warnings = ['Independent region transformation leaves boundary/interior geometric consistency unverified unless the CAD domain is regenerated.']
+    shared_status = 'consistent'
+    for i in range(len(transformed_batches)):
+        ent_i = {tuple(e) for e in transformed_batches[i].get('entities', [])}
+        for j in range(i + 1, len(transformed_batches)):
+            ent_j = {tuple(e) for e in transformed_batches[j].get('entities', [])}
+            if (ent_i & ent_j) and not np.allclose(matrices[i], matrices[j], atol=1e-12):
+                shared_status = 'inconsistent_shared_entity'
+                warnings.append(
+                    f"Regions {transformed_batches[i]['label']!r} and {transformed_batches[j]['label']!r} share CAD entities but received different transformations."
+                )
+    interiors = [b for b in transformed_batches if b.get('target') == 'interior' or b.get('entity_dimension') == 3]
+    outside_regions = []
+    if interiors:
+        int_mat = np.asarray(interiors[0]['parametrisation'].get('matrix', np.eye(4)), dtype=float)
+        env_batches = [
+            b for b, m in zip(transformed_batches, matrices)
+            if np.allclose(m, int_mat, atol=1e-12)
+        ]
+        env_pts = np.vstack([np.asarray(b['coordinates'], dtype=float) for b in env_batches])
+        low, high = env_pts.min(axis=0), env_pts.max(axis=0)
+        diag = max(float(np.linalg.norm(high - low)), 1e-9)
+        tol = diag * 0.02
+        for b, m in zip(transformed_batches, matrices):
+            if np.allclose(m, int_mat, atol=1e-12):
+                continue
+            pts = np.asarray(b['coordinates'], dtype=float)
+            if np.any(pts < low - tol) or np.any(pts > high + tol):
+                outside_regions.append(b['label'])
+    if outside_regions:
+        warnings.append(f"Transformed points in {outside_regions} lie outside the interior domain envelope.")
+        status = 'outside_domain'
+    else:
+        status = 'unverified'
+    return {
+        'status': status,
+        'shared_boundary_status': shared_status,
+        'outside_regions': outside_regions,
+        'warnings': warnings,
+    }
+
+
 def transform_batches(batches, setup):
     """Evaluate original points, transporting surface normals and planar co-normals."""
     offset = validate_setup(setup, batches)
     if setup.get('geo_overrides'):
         from .cad_regeneration import regenerate_batches
         batches, _ = regenerate_batches(batches, setup['geo_overrides'])
-    linear, offset = _affine_components(setup)
+    base_linear, base_offset = _affine_components(setup)
     affine = setup['schema_version'] == 2
+    has_region_steps = bool(setup.get('region_transforms'))
     result = []
     for batch in batches:
         record = deepcopy(batch)
-        affected = setup['scope'] == 'domain' or batch['label'] in setup['regions']
+        affected, linear, offset, steps_applied = _region_affine_chain(
+            batch['label'], setup, base_linear, base_offset
+        )
         points = np.asarray(batch['coordinates'], dtype=float)
         if points.ndim != 2 or points.shape[1] != 3 or not len(points) or not np.isfinite(points).all():
             raise ValueError('Coordinates must be finite non-empty N by 3 arrays.')
@@ -206,7 +356,8 @@ def transform_batches(batches, setup):
             from .normals import validate_normals
             original_normals = validate_normals(batch)
             conormal = batch.get('normal_kind') == 'outward_conormal' or batch.get('entity_dimension') == 1
-            anisotropic = len(set(setup['scale'])) != 1
+            svals = np.linalg.svd(linear, compute_uv=False)
+            anisotropic = not np.allclose(svals, svals[0], rtol=1e-7, atol=1e-9)
             if conormal and anisotropic and 'normal_planes' not in batch:
                 # Ambient A^-T is sufficient for codimension-one surface normals.
                 # Edge co-normals additionally need their parent plane's frame;
@@ -247,18 +398,19 @@ def transform_batches(batches, setup):
                     record[key] = val
         if affected and affine and 'boundary_distances' in batch:
             from .refinement import transport_distances
-            dist_updates = transport_distances(batch, linear, setup['scope'] == 'domain')
+            dist_updates = transport_distances(batch, linear, setup['scope'] == 'domain' and not has_region_steps)
             for key, val in dist_updates.items():
                 if val is None:
                     record.pop(key, None)
                 else:
                     record[key] = val
+        whole_consistent = (setup['scope'] == 'domain' and not has_region_steps)
         record['parametrisation'] = {
             'schema_version': setup['schema_version'], 'operation': 'affine' if affine else 'translation',
             'scope': setup['scope'], 'affected': affected,
             'parameters': dict(zip(('translation_x', 'translation_y', 'translation_z'), setup['translation'])),
             'regions': list(setup['regions']),
-            'domain_consistency': ('consistent affine transform' if affine else 'consistent translation') if setup['scope'] == 'domain' else 'unverified',
+            'domain_consistency': ('consistent affine transform' if affine else 'consistent translation') if whole_consistent else 'unverified',
         }
         if affine:
             # The full design definition is stored once in the export manifest,
@@ -268,7 +420,13 @@ def transform_batches(batches, setup):
                 setup=record_setup, matrix=_matrix(linear, offset).tolist(),
                 order=list(setup['order']), frame=setup['frame'],
                 density_note='Scaling changes spatial point density; point counts are preserved and no integration/Jacobian weights are supplied.')
+            if has_region_steps:
+                record['parametrisation']['applied_transform_steps'] = steps_applied
         result.append(record)
+    if has_region_steps:
+        consistency = verify_domain_consistency(batches, setup, result)
+        for rec in result:
+            rec['parametrisation']['consistency_check'] = consistency
     return result
 
 
@@ -288,7 +446,7 @@ def load_setup(path):
     return setup
 
 
-def export_configuration(batches, setup, path):
+def export_configuration(batches, setup, path, *, float_dtype='float64', cancelled=None):
     """Export one configuration with named parameter values and region metadata."""
     from pathlib import Path
     import xarray as xr
@@ -297,7 +455,7 @@ def export_configuration(batches, setup, path):
     if path.suffix.lower() not in ('.nc', '.npz'):
         raise ValueError('Choose a NetCDF (.nc) or NumPy (.npz) file.')
     records = transform_batches(batches, setup)
-    dataset = to_xarray(records)
+    dataset = to_xarray(records, float_dtype=float_dtype, cancelled=cancelled)
     dataset.coords['_gs_translation'] = xr.DataArray(
         setup['translation'], dims='_gs_parameter',
         coords={'_gs_parameter': ['translation_x', 'translation_y', 'translation_z']})

@@ -270,76 +270,68 @@ def _volume_samples(gmsh, tags, method, count, seed, *, return_measure=False):
     return (points, owners[indices], notes, total_volume, {}) if return_measure else (points, owners[indices], notes)
 
 
-def sample_geometry(request):
-    import gmsh
+def _verify_request_source(request):
     path = Path(request['source']).resolve()
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     if digest != request['source_hash']:
         raise ValueError('Geometry source changed. Reopen it before sampling.')
+    for dep in request.get('source_dependencies', []):
+        if not isinstance(dep, dict) or not isinstance(dep.get('path'), str) or not isinstance(dep.get('sha256'), str):
+            raise ValueError('Invalid .geo dependency metadata.')
+        rel_posix = dep['path']
+        if not rel_posix or Path(rel_posix).is_absolute() or '..' in Path(rel_posix).parts:
+            raise ValueError('Invalid .geo dependency path.')
+        dep_file = (path.parent / rel_posix).resolve()
+        if not dep_file.is_file() or hashlib.sha256(dep_file.read_bytes()).hexdigest() != dep['sha256']:
+            raise ValueError(f'Included .geo dependency changed or is missing: {rel_posix}. Reopen geometry before sampling.')
+    return path, digest
+
+
+def _sample_loaded_model(gmsh, request, path, digest, source_format, options, interior_domain, mode, threads, meshed_state):
+    from .refinement import validate_refinement, evaluate_boundary_distance, refinement_density
+    from .weights import measure_weights
     method, count, seed = request['method'], request['count'], request['seed']
     if method not in METHODS or not isinstance(count, int) or not 1 <= count <= 50000 or not isinstance(seed, int) or not 0 <= seed < 2**32:
         raise ValueError('Invalid sampling settings.')
-    mode = request.get('compute_mode','reproducible')
-    threads = request.get('cpu_threads',1)
-    if mode not in ('multicore','reproducible') or isinstance(threads,bool) or not isinstance(threads,int) or not 1<=threads<=64:
-        raise ValueError('Invalid CPU sampling settings.')
-    threads = threads if mode=='multicore' else 1
-    gmsh.initialize(['jorvik'], readConfigFiles=False, interruptible=False)
-    try:
-        gmsh.option.setNumber('General.Terminal', 0)
-        from .cad_import import open_source, import_options
-        source_format = open_source(gmsh, path)
-        options = import_options(gmsh, source_format)
-        if request.get("import_options", options) != options:
-            raise ValueError("Geometry import settings changed. Reopen the geometry before sampling.")
-        gmsh.option.setNumber('General.NumThreads', threads)
-        for axis in (1,2,3):
-            gmsh.option.setNumber(f'Mesh.MaxNumThreads{axis}D',threads)
-        gmsh.option.setNumber('Mesh.Reproducible',1 if mode=='multicore' else 0)
-        gmsh.option.setNumber('Mesh.RandomSeed', 1)
-        from .domains import domain_kind
-        from .refinement import validate_refinement, evaluate_boundary_distance, refinement_density
-        from .weights import measure_weights
-        refinement = validate_refinement(request.get('refinement'))
-        interior_domain = domain_kind(gmsh.model, source_format)
-        if request['target'] == 'interior':
-            if interior_domain == 'open_or_nonplanar':
-                if source_format != 'geo':
-                    raise ValueError('Interior sampling requires solid volumes or a coplanar planar sheet. This CAD file imported as open or non-planar surfaces only; sample its faces or supply a closed solid model.')
-                raise ValueError('Interior sampling requires a closed solid or a coplanar analytic-plane .geo domain. This model has open or non-planar surfaces; sample its faces or provide a valid solid.')
-            dim = 3 if interior_domain == 'solid' else 2
-            req_entities = request.get('entities') or []
-            vol_entities = sorted(set(tuple(e) for e in req_entities if len(e) == 2 and e[0] == 3))
-            if dim == 3 and vol_entities:
-                tags = [t for _, t in vol_entities]
-            else:
-                tags = [t for _, t in gmsh.model.getEntities(dim)]
+    refinement = validate_refinement(request.get('refinement'))
+    if request['target'] == 'interior':
+        if interior_domain == 'open_or_nonplanar':
+            if source_format != 'geo':
+                raise ValueError('Interior sampling requires solid volumes or a coplanar planar sheet. This CAD file imported as open or non-planar surfaces only; sample its faces or supply a closed solid model.')
+            raise ValueError('Interior sampling requires a closed solid or a coplanar analytic-plane .geo domain. This model has open or non-planar surfaces; sample its faces or provide a valid solid.')
+        dim = 3 if interior_domain == 'solid' else 2
+        req_entities = request.get('entities') or []
+        vol_entities = sorted(set(tuple(e) for e in req_entities if len(e) == 2 and e[0] == 3))
+        if dim == 3 and vol_entities:
+            tags = [t for _, t in vol_entities]
         else:
-            entities = sorted(set(tuple(e) for e in request['entities']))
-            if not entities or len({e[0] for e in entities}) != 1:
-                raise ValueError('Select faces or edges of one dimension before generating samples.')
-            dim = entities[0][0]
-            allowed_dims = (1, 2, 3) if request['target'] == 'group' else (1, 2)
-            if dim not in allowed_dims:
-                raise ValueError('Only faces and edges can be sampled as selected regions.')
-            tags = [t for _, t in entities]
-        existing = {t for _, t in gmsh.model.getEntities(dim)}
-        if not tags or not set(tags) <= existing:
-            raise ValueError('Sampling target is absent from this geometry.')
-        need_2d_mesh = dim >= 2 or (refinement is not None and refinement['entities'][0][0] == 2)
-        if need_2d_mesh:
-            # Independent mesh controls: never use the viewport's display triangles.
-            resolution = request.get('resolution', 32)
-            if resolution not in RESOLUTIONS:
-                raise ValueError('Unsupported geometry accuracy setting.')
+            tags = [t for _, t in gmsh.model.getEntities(dim)]
+    else:
+        entities = sorted(set(tuple(e) for e in request['entities']))
+        if not entities or len({e[0] for e in entities}) != 1:
+            raise ValueError('Select faces or edges of one dimension before generating samples.')
+        dim = entities[0][0]
+        allowed_dims = (1, 2, 3) if request['target'] == 'group' else (1, 2)
+        if dim not in allowed_dims:
+            raise ValueError('Only faces and edges can be sampled as selected regions.')
+        tags = [t for _, t in entities]
+    existing = {t for _, t in gmsh.model.getEntities(dim)}
+    if not tags or not set(tags) <= existing:
+        raise ValueError('Sampling target is absent from this geometry.')
+    need_2d_mesh = dim >= 2 or (refinement is not None and refinement['entities'][0][0] == 2)
+    if need_2d_mesh:
+        resolution = request.get('resolution', 32)
+        if resolution not in RESOLUTIONS:
+            raise ValueError('Unsupported geometry accuracy setting.')
+        mesh_dim = max(dim, 2)
+        if meshed_state.get('dim', 0) < mesh_dim:
             bounds = gmsh.model.getBoundingBox(-1, -1)
             extent = max(bounds[i+3]-bounds[i] for i in range(3))
-            gmsh.option.setNumber('Mesh.MeshSizeMax', extent / request.get('resolution', 32))
+            gmsh.option.setNumber('Mesh.MeshSizeMax', extent / resolution)
             gmsh.option.setNumber('Mesh.ElementOrder', 1)
             gmsh.option.setNumber('Mesh.RecombineAll', 0)
-            mesh_dim = max(dim, 2)
-            if mode=='multicore' and mesh_dim==3:
-                gmsh.option.setNumber('Mesh.Algorithm3D',10)  # Gmsh's parallel HXT mesher.
+            if mode == 'multicore' and mesh_dim == 3:
+                gmsh.option.setNumber('Mesh.Algorithm3D', 10)  # Gmsh's parallel HXT mesher.
             try:
                 gmsh.model.mesh.generate(mesh_dim)
                 gmsh.model.mesh.setOrder(1)
@@ -347,94 +339,157 @@ def sample_geometry(request):
                 if mesh_dim == 3:
                     raise ValueError('Could not mesh a closed solid domain; check open boundaries or invalid topology: ' + str(error)) from error
                 raise
-        draw_count = (min(100000, int(math.ceil((1.0 + refinement['bias']) * 1.4 * count)) + 256)
-                      if (refinement is not None and refinement['bias'] > 0 and method != 'grid')
-                      else count)
-        if dim == 1:
-            occ_edges = set(gmsh.model.occ.getEntities(1))
-            if occ_edges:
-                bounds = gmsh.model.getBoundingBox(-1, -1)
-                scale = max(bounds[i+3]-bounds[i] for i in range(3))
-                for tag in tags:
-                    if (1, tag) in occ_edges and gmsh.model.occ.getMass(1, tag) <= max(scale, 1e-12)*1e-12:
-                        raise ValueError(f'Edge {tag} is a degenerate CAD edge with zero length; choose another edge.')
-            points, point_tags, notes, domain_measure, extra = _edge_samples(gmsh, tags, method, draw_count, seed, return_measure=True)
-        elif dim == 2:
-            points, point_tags, notes, domain_measure, extra = _surface_samples(gmsh, tags, method, draw_count, seed, return_measure=True)
-        else:
-            points, point_tags, notes, domain_measure, extra = _volume_samples(gmsh, tags, method, draw_count, seed, return_measure=True)
-        if not len(points):
-            raise ValueError('No points survived geometry clipping. Increase the grid point budget.')
-        if not np.isfinite(points).all():
-            raise ValueError('Sampling returned invalid coordinates.')
-        importance = None
-        distances = None
-        if refinement is not None:
-            distances = evaluate_boundary_distance(gmsh, refinement['entities'], points)
-            if refinement['bias'] > 0 and method != 'grid' and len(points) > count:
-                bounds = gmsh.model.getBoundingBox(-1, -1)
-                domain_scale = max(bounds[i+3] - bounds[i] for i in range(3))
-                density = refinement_density(distances, domain_scale, refinement['bias'], refinement['decay'])
-                rng = np.random.default_rng(seed + 101)
-                accept_prob = density / (1.0 + refinement['bias'])
-                draws = rng.random(len(points))
-                accepted = np.flatnonzero(draws < accept_prob)
-                if len(accepted) >= count:
-                    chosen = accepted[:count]
-                else:
-                    chosen = np.argsort(draws / accept_prob)[:count]
-                points = points[chosen]
-                point_tags = point_tags[chosen]
-                distances = distances[chosen]
-                importance = density[chosen]
-                if 'tangents' in extra:
-                    extra['tangents'] = extra['tangents'][chosen]
-                notes.append('Boundary-distance refinement concentrated candidate density near the reference boundary; measure weights are importance-corrected.')
-        weights, domain_measure = measure_weights(len(points), domain_measure, importance=importance)
-        if method in ('lhs', 'sobol', 'halton', 'hammersley', 'stratified') and dim >= 2:
-            notes.append('The method defines candidate-space coverage. Geometric transformation and rejection do not preserve strict Cartesian LHS, stratification, or Sobol balance guarantees.')
-        if method == 'sobol' and count & (count-1):
-            notes.append('Sobol designs have their strongest balance properties at power-of-two counts.')
-        if mode=='multicore':
-            notes.append('Multicore meshing can change the numerical mesh and coordinates across runs or thread counts; use Reproducible mode for repeatable meshes.')
-        from .normals import boundary_normals
-        normal_data = boundary_normals(gmsh, dim, points, point_tags, request['target'])
-        if normal_data['normal_status'] == 'unavailable':
-            notes.append(normal_data['normal_note'])
-        result = {'document': request['document'], 'label': request['label'], 'target': request['target'],
-                'entities': [[dim, t] for t in tags], 'method': method, 'seed': seed,
-                'requested_count': count, 'count': len(points), 'coordinates': points.tolist(),
-                'entity_tags': point_tags.astype(int).tolist(), 'entity_dimension': dim,
-                'source': str(path), 'source_hash': digest, 'source_format': source_format, 'import_options': options, 'notes': notes,
-                'resolution': request.get('resolution', 32), 'compute_mode':mode,
-                'cpu_threads':threads, 'mesh_algorithm_2d':int(gmsh.option.getNumber('Mesh.Algorithm')),
-                'mesh_algorithm_3d':int(gmsh.option.getNumber('Mesh.Algorithm3D'))}
-        result['interior_domain'] = interior_domain
-        result.update(normal_data)
-        result['weights'] = weights.tolist()
-        result['domain_measure'] = domain_measure
-        result['weight_status'] = 'available'
-        if 'tangents' in extra:
-            result['tangents'] = extra['tangents'].tolist()
-        if 'surface_plane_normal' in extra:
-            result['surface_plane_normal'] = extra['surface_plane_normal']
-        if refinement is not None:
-            result['refinement'] = refinement
-            if refinement.get('include_distance', True) and distances is not None:
-                result['boundary_distances'] = distances.tolist()
-                result['distance_status'] = 'available'
-        if 'boundary_region' in request:
-            from .regions import validate_regions
-            snapshot = request['boundary_region']
-            model = {'source_hash': digest, 'document': request['document'], 'source_format': source_format,
-                     'entities': [{'dimension': d, 'tag': t} for d, t in gmsh.model.getEntities()]}
-            validate_regions([snapshot], model)
-            if sorted(snapshot['entities']) != sorted(result['entities']):
-                raise ValueError('Boundary region differs from the sampling target.')
-            result['boundary_region'] = snapshot
-        return result
-    finally:
-        gmsh.finalize()
+            meshed_state['dim'] = mesh_dim
+    draw_count = (min(100000, int(math.ceil((1.0 + refinement['bias']) * 1.4 * count)) + 256)
+                  if (refinement is not None and refinement['bias'] > 0 and method != 'grid')
+                  else count)
+    if dim == 1:
+        occ_edges = set(gmsh.model.occ.getEntities(1))
+        if occ_edges:
+            bounds = gmsh.model.getBoundingBox(-1, -1)
+            scale = max(bounds[i+3]-bounds[i] for i in range(3))
+            for tag in tags:
+                if (1, tag) in occ_edges and gmsh.model.occ.getMass(1, tag) <= max(scale, 1e-12)*1e-12:
+                    raise ValueError(f'Edge {tag} is a degenerate CAD edge with zero length; choose another edge.')
+        points, point_tags, notes, domain_measure, extra = _edge_samples(gmsh, tags, method, draw_count, seed, return_measure=True)
+    elif dim == 2:
+        points, point_tags, notes, domain_measure, extra = _surface_samples(gmsh, tags, method, draw_count, seed, return_measure=True)
+    else:
+        points, point_tags, notes, domain_measure, extra = _volume_samples(gmsh, tags, method, draw_count, seed, return_measure=True)
+    if not len(points):
+        raise ValueError('No points survived geometry clipping. Increase the grid point budget.')
+    if not np.isfinite(points).all():
+        raise ValueError('Sampling returned invalid coordinates.')
+    importance = None
+    distances = None
+    if refinement is not None:
+        distances = evaluate_boundary_distance(gmsh, refinement['entities'], points)
+        if refinement['bias'] > 0 and method != 'grid' and len(points) > count:
+            bounds = gmsh.model.getBoundingBox(-1, -1)
+            domain_scale = max(bounds[i+3] - bounds[i] for i in range(3))
+            density = refinement_density(distances, domain_scale, refinement['bias'], refinement['decay'])
+            rng = np.random.default_rng(seed + 101)
+            accept_prob = density / (1.0 + refinement['bias'])
+            draws = rng.random(len(points))
+            accepted = np.flatnonzero(draws < accept_prob)
+            if len(accepted) >= count:
+                chosen = accepted[:count]
+            else:
+                chosen = np.argsort(draws / accept_prob)[:count]
+            points = points[chosen]
+            point_tags = point_tags[chosen]
+            distances = distances[chosen]
+            importance = density[chosen]
+            if 'tangents' in extra:
+                extra['tangents'] = extra['tangents'][chosen]
+            notes.append('Boundary-distance refinement concentrated candidate density near the reference boundary; measure weights are importance-corrected.')
+    weights, domain_measure = measure_weights(len(points), domain_measure, importance=importance)
+    if method in ('lhs', 'sobol', 'halton', 'hammersley', 'stratified') and dim >= 2:
+        notes.append('The method defines candidate-space coverage. Geometric transformation and rejection do not preserve strict Cartesian LHS, stratification, or Sobol balance guarantees.')
+    if method == 'sobol' and count & (count-1):
+        notes.append('Sobol designs have their strongest balance properties at power-of-two counts.')
+    if mode == 'multicore':
+        notes.append('Multicore meshing can change the numerical mesh and coordinates across runs or thread counts; use Reproducible mode for repeatable meshes.')
+    from .normals import boundary_normals
+    normal_data = boundary_normals(gmsh, dim, points, point_tags, request['target'])
+    if normal_data['normal_status'] == 'unavailable':
+        notes.append(normal_data['normal_note'])
+    result = {'document': request['document'], 'label': request['label'], 'target': request['target'],
+            'entities': [[dim, t] for t in tags], 'method': method, 'seed': seed,
+            'requested_count': count, 'count': len(points), 'coordinates': points.tolist(),
+            'entity_tags': point_tags.astype(int).tolist(), 'entity_dimension': dim,
+            'source': str(path), 'source_hash': digest, 'source_format': source_format, 'import_options': options, 'notes': notes,
+            'resolution': request.get('resolution', 32), 'compute_mode': mode,
+            'cpu_threads': threads, 'mesh_algorithm_2d': int(gmsh.option.getNumber('Mesh.Algorithm')),
+            'mesh_algorithm_3d': int(gmsh.option.getNumber('Mesh.Algorithm3D'))}
+    if 'coordinate_units' in request:
+        result['coordinate_units'] = request['coordinate_units']
+    if 'source_dependencies' in request:
+        result['source_dependencies'] = request['source_dependencies']
+    result['interior_domain'] = interior_domain
+    result.update(normal_data)
+    result['weights'] = weights.tolist()
+    result['domain_measure'] = domain_measure
+    result['weight_status'] = 'available'
+    if 'tangents' in extra:
+        result['tangents'] = extra['tangents'].tolist()
+    if 'surface_plane_normal' in extra:
+        result['surface_plane_normal'] = extra['surface_plane_normal']
+    if refinement is not None:
+        result['refinement'] = refinement
+        if refinement.get('include_distance', True) and distances is not None:
+            result['boundary_distances'] = distances.tolist()
+            result['distance_status'] = 'available'
+    if 'boundary_region' in request:
+        from .regions import validate_regions
+        snapshot = request['boundary_region']
+        model = {'source_hash': digest, 'document': request['document'], 'source_format': source_format,
+                 'entities': [{'dimension': d, 'tag': t} for d, t in gmsh.model.getEntities()]}
+        validate_regions([snapshot], model)
+        if sorted(snapshot['entities']) != sorted(result['entities']):
+            raise ValueError('Boundary region differs from the sampling target.')
+        result['boundary_region'] = snapshot
+    return result
+
+
+def sample_geometry(request):
+    return sample_geometry_batch([request])[0]
+
+
+def sample_geometry_batch(requests):
+    """Sample one or more requests, reusing prepared CAD geometry and meshes when settings match."""
+    import gmsh
+    from .cad_import import open_source, import_options
+    from .domains import domain_kind
+    requests = list(requests)
+    if not requests:
+        raise ValueError('Supply at least one sampling request.')
+    groups = {}
+    verified = []
+    for index, request in enumerate(requests):
+        path, digest = _verify_request_source(request)
+        method, count, seed = request['method'], request['count'], request['seed']
+        if method not in METHODS or not isinstance(count, int) or not 1 <= count <= 50000 or not isinstance(seed, int) or not 0 <= seed < 2**32:
+            raise ValueError('Invalid sampling settings.')
+        mode = request.get('compute_mode', 'reproducible')
+        threads = request.get('cpu_threads', 1)
+        if mode not in ('multicore', 'reproducible') or isinstance(threads, bool) or not isinstance(threads, int) or not 1 <= threads <= 64:
+            raise ValueError('Invalid CPU sampling settings.')
+        threads = threads if mode == 'multicore' else 1
+        resolution = request.get('resolution', 32)
+        if resolution not in RESOLUTIONS:
+            raise ValueError('Unsupported geometry accuracy setting.')
+        key = (str(path), digest, resolution, mode, threads)
+        groups.setdefault(key, []).append(index)
+        verified.append((request, path, digest, mode, threads))
+    outputs = [None] * len(requests)
+    for (path_str, digest, resolution, mode, threads), indices in groups.items():
+        gmsh.initialize(['jorvik'], readConfigFiles=False, interruptible=False)
+        try:
+            gmsh.option.setNumber('General.Terminal', 0)
+            path = Path(path_str)
+            source_format = open_source(gmsh, path)
+            options = import_options(gmsh, source_format)
+            for idx in indices:
+                req = verified[idx][0]
+                if req.get('import_options', options) != options:
+                    raise ValueError('Geometry import settings changed. Reopen the geometry before sampling.')
+            gmsh.option.setNumber('General.NumThreads', threads)
+            for axis in (1, 2, 3):
+                gmsh.option.setNumber(f'Mesh.MaxNumThreads{axis}D', threads)
+            gmsh.option.setNumber('Mesh.Reproducible', 1 if mode == 'multicore' else 0)
+            gmsh.option.setNumber('Mesh.RandomSeed', 1)
+            interior_domain = domain_kind(gmsh.model, source_format)
+            meshed_state = {'dim': 0}
+            for idx in indices:
+                req, req_path, req_digest, req_mode, req_threads = verified[idx]
+                outputs[idx] = _sample_loaded_model(
+                    gmsh, req, req_path, req_digest, source_format, options,
+                    interior_domain, req_mode, req_threads, meshed_state,
+                )
+        finally:
+            gmsh.finalize()
+    return outputs
 
 
 if __name__ == '__main__':

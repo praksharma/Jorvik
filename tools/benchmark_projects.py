@@ -25,7 +25,7 @@ def run(count):
     batch={key:geometry[key] for key in ('document','source','source_hash','source_format')}
     batch.update(label='inner',target='selection',entities=[[1,i] for i in range(1,5)],
                  entity_dimension=1,method='random',seed=42,count=count,requested_count=count,
-                 coordinates=points.tolist(),entity_tags=tags.tolist(),normals=(-directions).tolist(),
+                 coordinates=points,entity_tags=tags,normals=-directions,
                  normal_status='available',normal_kind='outward_conormal',normal_validation='analytic annulus benchmark')
     state={'selection':[],'mode':'edge','selected_area':'inner','show_points':True,'through':False,
            'show_grid':False,'show_axes':True,'isolate':False,'isolate_geometry':False,'point_size':7,
@@ -39,7 +39,7 @@ def run(count):
         started=time.perf_counter();save_project(path,geometry,[(batch,'Generated',True)],state)
         save_seconds=time.perf_counter()-started
         del batch
-        started=time.perf_counter();manifest,_=load_project(path)
+        started=time.perf_counter();manifest,_=load_project(path,as_numpy=True)
         load_seconds=time.perf_counter()-started
         restored=manifest['areas'][0]['area']
         np.testing.assert_array_equal(restored['coordinates'],points)

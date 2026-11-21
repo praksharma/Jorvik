@@ -25,6 +25,21 @@ TARGETS = {
 def is_geo_target(target):
     return (isinstance(target, str) and target.startswith('geo:')
             and bool(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', target[4:])))
+
+
+def parse_region_target(target):
+    """Parse 'region:<label>:<base_target>' into (region_label, base_target) or None."""
+    if not isinstance(target, str) or not target.startswith('region:'):
+        return None
+    rest = target[7:]
+    region_label, sep, base_target = rest.rpartition(':')
+    if not sep or not region_label.strip() or base_target not in TARGETS:
+        return None
+    return region_label, base_target
+
+
+def is_region_target(target):
+    return parse_region_target(target) is not None
 METHODS = ('cartesian', 'paired', 'random', 'lhs', 'sobol')
 COMPARISONS = {'<=': operator.le, '<': operator.lt, '>=': operator.ge, '>': operator.gt,
                '==': operator.eq, '!=': operator.ne}
@@ -55,16 +70,17 @@ def _validate_parameter(parameter, method, base_setup):
     name, target = parameter.get('name'), parameter.get('target')
     if not isinstance(name, str) or not name.strip():
         raise ValueError('Every parameter needs a non-empty name.')
-    if not isinstance(target, str) or (target not in TARGETS and not is_geo_target(target)):
+    if not isinstance(target, str) or (target not in TARGETS and not is_geo_target(target) and not is_region_target(target)):
         raise ValueError(f'{name}: choose a supported transform target.')
     if is_geo_target(target) and base_setup is not None and 'geo_parameters' in base_setup:
         declared = {item['name'] for item in base_setup['geo_parameters']}
         if target[4:] not in declared:
             raise ValueError(f'{name}: unknown .geo parameter {target[4:]!r}.')
+    effective_target = parse_region_target(target)[1] if is_region_target(target) else target
     unit = parameter.get('unit')
-    if target.startswith('translation_') or is_geo_target(target):
+    if effective_target.startswith('translation_') or is_geo_target(target):
         units = ('source',)
-    elif target == 'rotation_angle':
+    elif effective_target == 'rotation_angle':
         units = ((base_setup.get('angle_units'),) if base_setup is not None
                  else ('degrees', 'radians'))
     else:
@@ -93,7 +109,7 @@ def _validate_parameter(parameter, method, base_setup):
                   if method in ('cartesian', 'paired') else None)
     else:
         raise ValueError(f'{name}: choose range or explicit values.')
-    if target.startswith('scale_') or target == 'uniform_scale':
+    if effective_target.startswith('scale_') or effective_target == 'uniform_scale':
         if any(value < 1e-8 or value > 1e8 for value in [reference, *checked]):
             raise ValueError(f'{name}: scale factors and reference must be between 1e-8 and 1e8.')
     return length
@@ -163,6 +179,11 @@ def _validated_size(design, base_setup=None):
     validate_constraints(design.get('constraints', []), {p['name']: p['unit'] for p in parameters})
     if 'uniform_scale' in targets and targets & {'scale_x', 'scale_y', 'scale_z'}:
         raise ValueError('Uniform scale cannot overlap individual scale targets.')
+    region_targets = [parse_region_target(t) for t in targets if is_region_target(t)]
+    for reg_label in {r for r, _ in region_targets}:
+        reg_sub = {b for r, b in region_targets if r == reg_label}
+        if 'uniform_scale' in reg_sub and reg_sub & {'scale_x', 'scale_y', 'scale_z'}:
+            raise ValueError(f'Region {reg_label!r}: uniform scale cannot overlap individual scale targets.')
     if method == 'cartesian':
         count = 1
         for length in lengths:
@@ -214,6 +235,25 @@ def _values(parameter):
 def _apply_value(setup, target, value):
     if target.startswith('geo:'):
         setup.setdefault('geo_overrides', {})[target[4:]] = value
+    elif is_region_target(target):
+        region_label, base_target = parse_region_target(target)
+        steps = setup.setdefault('region_transforms', [])
+        step = next((s for s in steps if s.get('step_id') == f'design:{region_label}'), None)
+        if step is None:
+            step = {
+                'step_id': f'design:{region_label}',
+                'regions': [region_label],
+                'translation': [0.0, 0.0, 0.0],
+                'rotation_axis': [0.0, 0.0, 1.0],
+                'rotation_angle': 0.0,
+                'angle_units': setup.get('angle_units', 'degrees'),
+                'scale': [1.0, 1.0, 1.0],
+                'pivot': list(setup.get('pivot', [0.0, 0.0, 0.0])),
+                'order': ['scale', 'rotate', 'translate'],
+                'frame': 'world',
+            }
+            steps.append(step)
+        _apply_value(step, base_target, value)
     elif target.startswith('translation_'):
         setup['translation']['xyz'.index(target[-1])] = value
     elif target == 'rotation_angle':

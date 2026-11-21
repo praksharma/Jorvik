@@ -670,6 +670,8 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
                 hints = []
                 if entity.get("name"):
                     hints.append("CAD name: " + entity["name"])
+                if entity.get("colour"):
+                    hints.append("CAD colour: " + entity["colour"])
                 if entity.get("degenerate"):
                     hints.append("Zero-length CAD edge: retained topology; cannot be sampled.")
                 if hints:
@@ -754,7 +756,13 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         for entity in self.geometry["entities"]:
             if (entity["dimension"], entity["tag"]) in self.selection:
                 kind = "Face" if entity["dimension"] == 2 else "Edge"
-                lines.append(f"\n{kind} {entity['tag']}\nType: {entity['type']}\nGroups: {', '.join(map(str, entity['groups'])) or 'None'}")
+                detail = f"\n{kind} {entity['tag']}\nType: {entity['type']}"
+                if entity.get("name"):
+                    detail += f"\nCAD name: {entity['name']}"
+                if entity.get("colour"):
+                    detail += f"\nCAD colour: {entity['colour']}"
+                detail += f"\nGroups: {', '.join(map(str, entity['groups'])) or 'None'}"
+                lines.append(detail)
         for region in self.boundary_regions:
             if self.selection & {tuple(e) for e in region['entities']}:
                 lines.append('Boundary region: ' + region['label'])

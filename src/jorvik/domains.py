@@ -30,7 +30,55 @@ def planar_script_domain(model):
         return False
 
 
+def classify_assembly(model):
+    """Distinguish single solids, connected multi-volume solids, disconnected bodies, open shells and non-manifold faces."""
+    solids = [int(tag) for _, tag in model.getEntities(3)]
+    faces = [int(tag) for _, tag in model.getEntities(2)]
+    shared_interfaces = []
+    non_manifold_faces = []
+    open_faces = []
+    adjacency = {s: set() for s in solids}
+    for ftag in faces:
+        upward, _ = model.getAdjacencies(2, ftag)
+        parents = sorted(set(int(t) for t in upward))
+        if len(parents) == 0:
+            open_faces.append(ftag)
+        elif len(parents) == 2:
+            shared_interfaces.append(ftag)
+            s1, s2 = parents
+            if s1 in adjacency and s2 in adjacency:
+                adjacency[s1].add(s2)
+                adjacency[s2].add(s1)
+        elif len(parents) > 2:
+            non_manifold_faces.append(ftag)
+    visited = set()
+    components = 0
+    for s in solids:
+        if s not in visited:
+            components += 1
+            stack = [s]
+            while stack:
+                curr = stack.pop()
+                if curr not in visited:
+                    visited.add(curr)
+                    stack.extend(adjacency[curr] - visited)
+    return {
+        'solid_count': len(solids),
+        'disconnected_body_count': components,
+        'shared_interface_faces': sorted(shared_interfaces),
+        'non_manifold_faces': sorted(non_manifold_faces),
+        'unattached_surface_faces': sorted(open_faces) if solids else [],
+        'is_manifold': not non_manifold_faces,
+        'has_mixed_open_shells': bool(solids and open_faces),
+    }
+
+
 def domain_kind(model, source_format=None):
-    if model.getEntities(3): return 'solid'
-    if planar_script_domain(model): return 'planar'
+    assembly = classify_assembly(model)
+    if not assembly['is_manifold'] or assembly['has_mixed_open_shells']:
+        return 'open_or_nonplanar'
+    if assembly['solid_count'] > 0:
+        return 'solid'
+    if planar_script_domain(model):
+        return 'planar'
     return 'open_or_nonplanar'

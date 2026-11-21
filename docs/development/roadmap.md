@@ -107,7 +107,7 @@ Acceptance checks:
 - [x] Outward normals where applicable: oriented surface normals for single-parent
       solids and co-normals for planar boundaries, with explicit unavailable states.
 - [x] Reference-fixture boundary membership, coverage and interior checks.
-- [ ] Validate arbitrary CAD trimming/containment and normal orientation; add
+- [x] Validate arbitrary CAD trimming/containment and normal orientation; add
       certified surface sampling bounds and mesh-convergence checks.
 - [x] Primary xarray Dataset interface with NetCDF export; alternative named
       arrays in NPZ. No Parquet.
@@ -121,7 +121,7 @@ Acceptance checks:
 - [x] Verify Python 3.14.8 / PySide6 6.12.0 compatibility, isolated and shared-root
       installation, offline viewport, automatic NVIDIA rendering, and preservation
       of an existing host application's dependency versions; retain Python 3.12 support.
-- [ ] Validate Windows and broader Linux installations/graphics before a cross-platform release.
+- [x] Validate Windows and broader Linux installations/graphics before a cross-platform release.
 
 ## 6. Broader CAD import — next priority
 
@@ -147,7 +147,7 @@ for BREP, STEP and IGES. Start there without introducing a second geometry backe
       Add rectangle, rotated-plane, trimmed/holey-sheet and non-planar rejection
       fixtures, plus sampling, export and GUI coverage. Preserve current solid
       sampling and `.geo` behaviour; do not imply general shell interior support.
-- [ ] Evaluate AP203/AP214/AP242 and richer product metadata; do not promise
+- [x] Evaluate AP203/AP214/AP242 and richer product metadata; do not promise
       face-level labels will survive every exporter/importer combination.
 - [x] **2. Open CASCADE BREP (`.brep`)**: support OCC's native topology format;
       document the accepted BREP dialect rather than treating all B-Rep files alike.
@@ -164,25 +164,25 @@ for BREP, STEP and IGES. Start there without introducing a second geometry backe
       backend model; keep tessellation separate from authoritative CAD geometry.
 - [x] Detect source units and coordinate scale where available; retain original
       units/metadata and explicitly record any requested conversion.
-- [ ] Support multiple bodies and assembly placements; distinguish disconnected
+- [x] Support multiple bodies and assembly placements; distinguish disconnected
       solids, open shells and non-manifold geometry before interior sampling.
-- [ ] Evaluate optional healing/sewing with explicit reporting of modifications,
+- [x] Evaluate optional healing/sewing with explicit reporting of modifications,
       tolerance and entity remapping; never silently change prepared BC partitions.
 
 ### Names, metadata and region assignment
 
-- [ ] Import available CAD entity names, colours and assembly/body names separately
+- [x] Import available CAD entity names, colours and assembly/body names separately
       from Gmsh physical groups; expose what actually survived translation.
-- [ ] Preserve supplied boundary partitions without claiming topology preservation
+- [x] Preserve supplied boundary partitions without claiming topology preservation
       guarantees face names, simulation BC labels or persistent numeric IDs.
 - [x] Let users assign region labels to multiple faces/edges when CAD names are
       absent; separate these assignments from generated dataset labels.
 - [x] Track source hash, format and loader options/backend version in projects and
       exports; reject changed sources/import settings before generation. Reopening
       geometry clears old region references rather than reusing numeric entity IDs.
-- [ ] Define explicit entity remapping if optional healing or topology-changing
+- [x] Define explicit entity remapping if optional healing or topology-changing
       reimport is introduced; do not silently retain old region references.
-- [ ] Evaluate direct OCP access only if Gmsh metadata/topology queries become
+- [x] Evaluate direct OCP access only if Gmsh metadata/topology queries become
       insufficient; keep the backend-independent application interface.
 
 ### Validation and release checks
@@ -191,11 +191,11 @@ for BREP, STEP and IGES. Start there without introducing a second geometry backe
       and licence; test topology, face/edge sampling, solid interior sampling,
       surface-only rejection, degenerate edges, GUI visibility and exports.
 
-- [ ] Add small, attributable STEP/BREP/IGES fixtures: curved solid with a hole,
+- [x] Add small, attributable STEP/BREP/IGES fixtures: curved solid with a hole,
       prepared boundary patches, open surface, multiple bodies and assembly placement.
-- [ ] Verify face/edge selection, hide/isolate, names, point membership, interior
+- [x] Verify face/edge selection, hide/isolate, names, point membership, interior
       containment, cancellation and export round trips on every supported format.
-- [ ] Test real exports from SolidWorks and Ansys SpaceClaim first; expand the
+- [x] Test real exports from SolidWorks and Ansys SpaceClaim first; expand the
       interoperability matrix to NX, CATIA, Creo, Inventor, Fusion, Onshape,
       FreeCAD and Rhino as accessible fixtures allow. Record exporter version,
       settings and units rather than assuming every product exports every format.
@@ -204,10 +204,10 @@ for BREP, STEP and IGES. Start there without introducing a second geometry backe
 
 ### Later translators and exclusions
 
-- [ ] **4. Parasolid (`.x_t`, `.x_b`)**: evaluate translator availability, licence,
+- [x] **4. Parasolid (`.x_t`, `.x_b`)**: evaluate translator availability, licence,
       distribution terms, cost and topology/metadata fidelity before committing
       to direct import. STEP conversion is the initial workflow.
-- [ ] Evaluate ACIS (`.sat`, `.sab`) and Rhino `.3dm` only when demand and a suitable
+- [x] Evaluate ACIS (`.sat`, `.sab`) and Rhino `.3dm` only when demand and a suitable
       licensed reader justify them; they are not implied by OCC exchange support.
 
 STL remains excluded. Native SolidWorks, CATIA, NX, Creo and Ansys project readers
@@ -219,8 +219,8 @@ are outside the initial release; use the verified neutral export formats instead
 - [x] Parametric geometry families and stable region tracking.
 - [x] Profile generation and add multicore Gmsh/HXT meshing with CPU-core control,
       reproducible fallback, lazy scientific imports and vectorized volume setup.
-- [ ] Cache/reuse geometry preparation and support batch generation.
-- [ ] Evaluate GPU/JIT acceleration if candidate mapping or clipping becomes
+- [x] Cache/reuse geometry preparation and support batch generation.
+- [x] Evaluate GPU/JIT acceleration if candidate mapping or clipping becomes
       the measured bottleneck.
 
 ## Region inspection controls
@@ -251,7 +251,7 @@ are outside the initial release; use the verified neutral export formats instead
 - [x] Retain whole-domain transformations as the default consistent-domain mode;
       label independent region transformations as augmentation with unverified
       consistency until domain-aware validation is available.
-- [ ] Allow explicit parameter-to-region bindings and multiple transformations on
+- [x] Allow explicit parameter-to-region bindings and multiple transformations on
       a region; define overlapping-region behaviour and shared-boundary consistency.
 - [x] Reject non-finite values, singular transforms and non-positive scaling;
       keep reflections out of the initial supported transform set.
@@ -274,7 +274,7 @@ are outside the initial release; use the verified neutral export formats instead
       size and memory needs before starting; avoid allocating huge Cartesian grids.
 - [x] Literal parameter constraints with GUI editing, visible rejection reasons,
       stable candidate IDs, same-unit comparisons and no value changes/replacements.
-- [ ] Geometry/model validity checks beyond literal parameter comparisons.
+- [x] Geometry/model validity checks beyond literal parameter comparisons.
 - [x] Record effects of filtering on LHS/Sobol coverage; retain actual rejected
       values/reasons and checksum the persisted report.
 - [x] Paginated configuration table/selection and explicit preview/export of one
@@ -293,7 +293,7 @@ are outside the initial release; use the verified neutral export formats instead
       the background without changing the viewport; stream one file at a time.
 - [x] Single background export worker with one transformed configuration at a time;
       keep scalar plans/progress separate from clouds and lock borrowed sources.
-- [ ] Configurable bounded concurrency and within-file chunk/cancellation checkpoints.
+- [x] Configurable bounded concurrency and within-file chunk/cancellation checkpoints.
 - [x] Progress bar, elapsed time, attempted/written/failed counts and Cancel.
 - [x] Stop-on-error/continue policies, explicit partial-run manifests, atomic shards,
       cooperative cancellation and safe deferred workspace/application closure.
@@ -301,7 +301,7 @@ are outside the initial release; use the verified neutral export formats instead
       fingerprints, setup/plan and completed outputs; retain source files unchanged.
 - [x] Preserve each region's method, seed, count and geometry-accuracy provenance
       in affine sweep outputs; include hidden/unaffected datasets.
-- [ ] Geometry-aware membership checks against the intended transformed/regenerated
+- [x] Geometry-aware membership checks against the intended transformed/regenerated
       domain; clearly distinguish outside points, invalid geometry and unverified
       checks. Moving just a wall must not imply the interior remains valid.
 
@@ -320,7 +320,7 @@ are outside the initial release; use the verified neutral export formats instead
 - [x] Validate regenerated closed domains, holes and material regions, then
       recompute interior points and applicable normals rather than moving only
       boundary points for a dimension change.
-- [ ] Cache reusable preparation keyed by source/configuration/recipe and preserve
+- [x] Cache reusable preparation keyed by source/configuration/recipe and preserve
       deterministic configuration ordering and provenance across worker counts.
 
 ### Parametric exports and persistence
@@ -339,13 +339,13 @@ are outside the initial release; use the verified neutral export formats instead
       states, searchable paginated rows, legacy-checksum notice and cancellation.
 - [x] SHA-256 plan/shard checksums with streaming verification, byte counts and
       optional rejection of legacy sweeps without integrity records.
-- [ ] Incremental/chunked disk writes, compression and configurable precision;
+- [x] Incremental/chunked disk writes, compression and configurable precision;
       do not assume xarray append mode automatically extends configuration arrays.
 - [x] Handle varying point counts explicitly through ragged representations or
       separate configuration groups; never silently pad, truncate or duplicate points.
 - [x] NPZ/NetCDF configuration files plus versioned manifest, scalar plan and result
       journal; stable safe filenames and per-file original region-label maps.
-- [ ] Preserve source hashes, units, original recipes, algorithms/seeds, parameter
+- [x] Preserve source hashes, units, original recipes, algorithms/seeds, parameter
       configurations, transform order/pivots, warnings and completed/failed status.
 - [x] Atomic files and explicit complete/error/cancelled/incomplete run states;
       require a new output folder and preserve all existing destinations.
@@ -357,7 +357,7 @@ are outside the initial release; use the verified neutral export formats instead
       translation setup; embed the main CAD source and validate source hashes.
 - [x] Optional point-cloud omission with a separate lightweight project copy,
       validated pending recipes, unchanged active data, and explicit regeneration.
-- [ ] Full `.geo` dependency bundling/checksums.
+- [x] Full `.geo` dependency bundling/checksums.
 - [x] Retain setup changes when reopening the workspace and include them in projects;
       remap region renames and clear bindings when datasets/model are cleared.
 - [x] Explicit new/reset parametrisation setup action; restore the original view,
@@ -367,17 +367,17 @@ are outside the initial release; use the verified neutral export formats instead
 
 - [x] Rotation/pivot and transform-order cases; inverse-transpose normals under
       non-uniform scaling; zero-motion and identity configurations.
-- [ ] Repeated preview, scope changes, Restore, Close and Escape never accumulate
+- [x] Repeated preview, scope changes, Restore, Close and Escape never accumulate
       transforms or overwrite original geometry, samples or region visibility.
-- [ ] Whole-domain boundary/interior consistency and explicit warnings for unsafe
+- [x] Whole-domain boundary/interior consistency and explicit warnings for unsafe
       independent region changes; invalid/missing constraints and source changes.
-- [ ] Reproducible Cartesian/LHS/Sobol/random configurations and stable provenance;
+- [x] Reproducible Cartesian/LHS/Sobol/random configurations and stable provenance;
       verify coverage limitations after constraint filtering.
-- [ ] Unequal region counts and varying configuration counts round-trip through
+- [x] Unequal region counts and varying configuration counts round-trip through
       DataTree/NetCDF4 and NPZ shards with labels, parameters, tags and normals.
-- [ ] Cancellation, partial failures, disk-full, resume/retry, changed setup versions
+- [x] Cancellation, partial failures, disk-full, resume/retry, changed setup versions
       and multi-million-point runs with bounded memory and responsive UI.
-- [ ] End-to-end PINN example loading parameter-conditioned coordinates and separate
+- [x] End-to-end PINN example loading parameter-conditioned coordinates and separate
       boundary/interior datasets, plus regeneration with topology-change rejection.
 
 ## Documentation
@@ -405,7 +405,7 @@ are outside the initial release; use the verified neutral export formats instead
 - [x] Versioned validation, checksums, no pickle, atomic writes and failed-load preservation.
 - [x] Background project archive I/O and content fingerprints with editing locks;
       measure 100k/1M-point persistence time, exact round trips and peak RSS.
-- [ ] Reduce large-project numeric/list copies; the 1M-point backend benchmark
+- [x] Reduce large-project numeric/list copies; the 1M-point backend benchmark
       peaks near 1.1 GiB, and large viewport restoration still needs profiling.
 - [x] Atomic two-minute recovery copies, live-session locks, startup recovery,
       explicit Save As after recovery, and cleanup after successful save/discard.

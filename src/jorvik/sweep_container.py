@@ -149,8 +149,12 @@ def _datatree_from_configurations(manifest, configurations):
     return xr.DataTree.from_dict(tree_dict)
 
 
-def export_consolidated_sweep(sweep_dir, destination, *, allow_partial=False, require_integrity=False):
+def export_consolidated_sweep(sweep_dir, destination, *, allow_partial=False,
+                              require_integrity=False, float_dtype='float64', cancelled=None):
     """Export all verified configurations from a sweep folder into one atomic .nc or .npz bundle."""
+    if float_dtype not in ('float64', 'float32'):
+        raise ValueError("float_dtype must be 'float64' or 'float32'.")
+    target_dtype = np.float64 if float_dtype == 'float64' else np.float32
     destination = Path(destination)
     suffix = destination.suffix.lower()
     if suffix not in ('.nc', '.npz'):
@@ -162,15 +166,19 @@ def export_consolidated_sweep(sweep_dir, destination, *, allow_partial=False, re
     flat_coords['_gs_parameter_units'] = xr.DataArray(
         tree['parameters'].coords['units'].values, dims=('_gs_parameter',))
     flat_vars['_gs_parameter_values'] = xr.DataArray(
-        tree['parameters']['values'].values, dims=('_gs_configuration', '_gs_parameter'))
+        tree['parameters']['values'].values.astype(target_dtype, copy=False),
+        dims=('_gs_configuration', '_gs_parameter'))
     ragged = bool(tree.attrs.get('ragged', 0))
     if not ragged:
         for index, (safe_key, node) in enumerate(tree['regions'].children.items()):
+            if cancelled is not None and cancelled():
+                raise InterruptedError('Consolidated sweep export cancelled at region checkpoint.')
             ds = node.to_dataset()
             pdim = f'_gs_points_{index}'
             prefix = f'_gs_r{index}_'
             flat_vars[prefix + 'coordinates'] = xr.DataArray(
-                ds['coordinates'].values, dims=('_gs_configuration', pdim, 'xyz'))
+                ds['coordinates'].values.astype(target_dtype, copy=False),
+                dims=('_gs_configuration', pdim, 'xyz'))
             flat_coords[prefix + 'entity_tags'] = xr.DataArray(
                 ds['entity_tags'].values, dims=('_gs_configuration', pdim))
             entry = {
@@ -186,19 +194,22 @@ def export_consolidated_sweep(sweep_dir, destination, *, allow_partial=False, re
                                 ('weights', ('_gs_configuration', pdim)),
                                 ('boundary_distances', ('_gs_configuration', pdim))):
                 if field in ds:
-                    flat_coords[prefix + field] = xr.DataArray(ds[field].values, dims=dims)
+                    flat_coords[prefix + field] = xr.DataArray(
+                        ds[field].values.astype(target_dtype, copy=False), dims=dims)
                     entry[field] = prefix + field
             node_records.append(entry)
     else:
         slot = 0
         for cid, cnode in tree['configurations'].children.items():
+            if cancelled is not None and cancelled():
+                raise InterruptedError('Consolidated sweep export cancelled at configuration checkpoint.')
             for safe_key, rnode in cnode['regions'].children.items():
                 ds = rnode.to_dataset()
                 pdim = f'_gs_points_{slot}'
                 prefix = f'_gs_c{slot}_'
                 slot += 1
                 flat_vars[prefix + 'coordinates'] = xr.DataArray(
-                    ds['coordinates'].values, dims=(pdim, 'xyz'))
+                    ds['coordinates'].values.astype(target_dtype, copy=False), dims=(pdim, 'xyz'))
                 flat_coords[prefix + 'entity_tags'] = xr.DataArray(
                     ds['entity_tags'].values, dims=(pdim,))
                 entry = {
@@ -215,7 +226,8 @@ def export_consolidated_sweep(sweep_dir, destination, *, allow_partial=False, re
                                     ('weights', (pdim,)),
                                     ('boundary_distances', (pdim,))):
                     if field in ds:
-                        flat_coords[prefix + field] = xr.DataArray(ds[field].values, dims=dims)
+                        flat_coords[prefix + field] = xr.DataArray(
+                            ds[field].values.astype(target_dtype, copy=False), dims=dims)
                         entry[field] = prefix + field
                 node_records.append(entry)
     bundle_meta = {
