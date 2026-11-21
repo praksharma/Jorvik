@@ -11,7 +11,6 @@ nav = [
   { "Overview" = "index.md" },
   { "Get started" = "guide/getting-started.md" },
   { "Tutorials" = [
-    { "2D annulus first dataset" = "guide/getting-started.md" },
     { "3D sphere cutaway & volume" = "guide/tutorial-3d-sphere.md" },
     { "STEP & BREP CAD workflows" = "guide/tutorial-cad-workflows.md" },
     { "Comparing methods & editing areas" = "guide/tutorial-editing-and-comparison.md" },
@@ -27,7 +26,6 @@ nav = [
     { "Outward normals" = "guide/normals.md" },
     { "Datasets and editing" = "guide/datasets.md" },
     { "Projects and recovery" = "guide/projects.md" },
-    { "Transforms and sweeps" = "guide/transforms-and-sweeps.md" },
     { "Graphics troubleshooting" = "guide/graphics.md" },
   ] },
   { "Python and data reference" = [
