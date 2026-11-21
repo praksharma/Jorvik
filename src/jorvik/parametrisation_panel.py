@@ -48,6 +48,10 @@ class ParametrisationDialog(QDialog):
         form.addRow('Rotation angle', self.rotation_angle)
         self.scales = vector_row('Scale factors', 'scale', [1, 1, 1], 1e-8, 1e8)
         self.pivots = vector_row('Pivot', 'pivot', [0, 0, 0], -1e12, 1e12)
+        self.center_pivot_button = QPushButton('Center pivot on geometry / regions')
+        self.center_pivot_button.setToolTip('Set the scale and rotation pivot to the bounding-box center of the domain or checked regions.')
+        self.center_pivot_button.clicked.connect(self.center_pivot_on_geometry)
+        form.addRow('', self.center_pivot_button)
         instructions = QLabel('Order: scale → rotate → translate in world coordinates. '
                               'Scale and rotation share the pivot. Distances use source geometry units; '
                               'the rotation axis must be nonzero. Equal scale factors give uniform scaling.')
@@ -181,6 +185,35 @@ class ParametrisationDialog(QDialog):
         regions = self.scope.currentData() == 'regions'
         self.regions.setEnabled(regions)
         self.warning.setText('Only checked point clouds move. CAD geometry stays fixed; boundary/interior consistency is unverified.' if regions else 'Geometry display and all sampled regions transform together. The source CAD file is unchanged.')
+
+    def center_pivot_on_geometry(self):
+        import numpy as np
+        checked = {
+            self.regions.item(i).text()
+            for i in range(self.regions.count())
+            if self.regions.item(i).checkState() == Qt.CheckState.Checked
+        }
+        use_regions = self.scope.currentData() == 'regions' and checked
+        batches = [
+            b for b in self.window.sampling.batches
+            if (b['label'] in checked if use_regions else True)
+        ]
+        coords_list = [np.asarray(b['coordinates'], dtype=np.float64) for b in batches if b.get('coordinates')]
+        if not use_regions and self.window.geometry and self.window.geometry.get('topology'):
+            topo_bounds = [e['bounds'] for e in self.window.geometry['topology'] if len(e.get('bounds', [])) == 6]
+            if topo_bounds:
+                arr = np.asarray(topo_bounds, dtype=np.float64)
+                low = np.min(arr[:, :3], axis=0)
+                high = np.max(arr[:, 3:], axis=0)
+                center = 0.5 * (low + high)
+                for spin, val in zip(self.pivots, center):
+                    spin.setValue(float(val))
+                return
+        if coords_list:
+            pts = np.vstack(coords_list)
+            center = 0.5 * (np.min(pts, axis=0) + np.max(pts, axis=0))
+            for spin, val in zip(self.pivots, center):
+                spin.setValue(float(val))
 
     def _base_setup(self):
         setup = {'schema_version': 2, 'scope': self.scope.currentData(),

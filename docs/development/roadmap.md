@@ -455,3 +455,13 @@ are outside the initial release; use the verified neutral export formats instead
 - [x] GUI controls for PINN enrichments (Darboux curvatures, R-function ADFs, Space-Time $[t_0, T]$ windows)
       and one-click **Sample all regions + interior** batch generation with single-step undo.
 - [x] Viewport PNG screenshot export (`Ctrl+P` / toolbar button).
+- [x] Orthographic (`Parallel`) vs. Perspective camera switch (`O`) and 3D bounding-box
+      wireframe cage with $\Delta X \times \Delta Y \times \Delta Z$ dimensions HUD (`B`).
+- [x] Per-point 3D sample hover inspector in the viewport showing point index, coordinates,
+      entity tag, outward normal, quadrature weight and active scalar value.
+- [x] Boundary Regions dialog entity filter, `Check visible` / `Uncheck all` actions, and
+      one-click `Auto-create from groups / CAD names`.
+- [x] GUI controls in Sampling for `Auto-detect BC junctions & sharp corners` singularity
+      refinement, `Shared internal interfaces (paired ±n)`, and `Periodic partner` twin sampling.
+- [x] `Center pivot on geometry / regions` button in Parametrisation and `float32` / `float64`
+      precision plus bounded multi-worker concurrency in Sweep Export.

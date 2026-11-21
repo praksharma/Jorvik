@@ -128,8 +128,28 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.isolate_geometry_action.toggled.connect(self.update_isolation)
         visibility_menu.addAction(self.isolate_action);visibility_menu.addAction(self.isolate_geometry_action)
 
-        # CAD Surface Shading & Interactive 3D Clipping Plane controls
+        # CAD Surface Shading, Camera Projection, Bounding Box & Interactive 3D Clipping Plane controls
         self.toolbar.addSeparator()
+        self.projection_combo = QComboBox()
+        for title, proj_key in [('Perspective', 'perspective'), ('Orthographic', 'orthographic')]:
+            self.projection_combo.addItem(title, proj_key)
+        self.projection_combo.setToolTip('Camera projection mode (Orthographic removes perspective foreshortening for 2D sheets & 3D cross-sections)')
+        self.projection_combo.currentIndexChanged.connect(self.sync_projection_mode)
+        self.toolbar.addWidget(self.projection_combo)
+
+        self.ortho_action = self.view_menu.addAction('Orthographic projection')
+        self.ortho_action.setCheckable(True)
+        self.ortho_action.setShortcut('O')
+        self.ortho_action.toggled.connect(
+            lambda checked: self.projection_combo.setCurrentIndex(
+                self.projection_combo.findData('orthographic' if checked else 'perspective')
+            )
+        )
+        self.bounding_box_action = self.view_menu.addAction('Show bounding box & dimensions')
+        self.bounding_box_action.setCheckable(True)
+        self.bounding_box_action.setShortcut('B')
+        self.bounding_box_action.toggled.connect(self.view.set_bounding_box_visible)
+
         self.shading_combo = QComboBox()
         for title, mode_key in [('Opaque', 'opaque'), ('Translucent (X-Ray)', 'translucent'), ('Wireframe', 'wireframe')]:
             self.shading_combo.addItem(title, mode_key)
@@ -162,6 +182,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
 
         self.view.picked.connect(self.pick_entity)
         self.view.hovered.connect(self.on_viewport_hovered)
+        self.view.pointHovered.connect(self.on_point_hovered)
         self.tree_filter = QLineEdit()
         self.tree_filter.setPlaceholderText('Filter faces, edges, groups or regions…')
         self.tree_filter.setClearButtonEnabled(True)
@@ -642,6 +663,12 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         for i in range(self.tree.topLevelItemCount()):
             filter_node(self.tree.topLevelItem(i))
 
+    def sync_projection_mode(self):
+        mode = self.projection_combo.currentData()
+        with QSignalBlocker(self.ortho_action):
+            self.ortho_action.setChecked(mode == 'orthographic')
+        self.view.set_projection_mode(mode)
+
     def on_viewport_hovered(self, dimension, tag, x, y, z):
         if not self.geometry:
             return
@@ -654,6 +681,31 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.statusBar().showMessage(
             f"{kind} {tag}{etype}{ename}{reg_str} | x={x:.4g}, y={y:.4g}, z={z:.4g}"
         )
+
+    def on_point_hovered(self, label, index, x, y, z):
+        batch = next((b for b in self.sampling.batches if b.get('label') == label), None)
+        parts = [f"Point #{index} ({label})", f"x={x:.4g}, y={y:.4g}, z={z:.4g}"]
+        if batch is not None and 0 <= index < batch.get('count', 0):
+            tags = batch.get('entity_tags')
+            if tags and index < len(tags):
+                parts.append(f"tag={tags[index]}")
+            weights = batch.get('weights')
+            if weights and index < len(weights):
+                parts.append(f"w={weights[index]:.4g}")
+            normals = batch.get('normals')
+            if normals and index < len(normals):
+                n = normals[index]
+                parts.append(f"n=({n[0]:.3g}, {n[1]:.3g}, {n[2]:.3g})")
+            for key, prefix in (
+                ('boundary_distances', 'd(x)'),
+                ('adf_distances', 'ADF'),
+                ('mean_curvature', 'H'),
+                ('times', 't'),
+            ):
+                vals = batch.get(key)
+                if vals and index < len(vals):
+                    parts.append(f"{prefix}={vals[index]:.4g}")
+        self.statusBar().showMessage(' | '.join(parts))
 
     def set_visibility(self, attribute, checked):
         setattr(self.view, attribute, checked)

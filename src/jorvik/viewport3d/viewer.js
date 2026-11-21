@@ -7,12 +7,26 @@ import {LineSegmentsGeometry} from './vendor/lines/LineSegmentsGeometry.js';
 import {LineMaterial} from './vendor/lines/LineMaterial.js';
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(38,1,.01,10000);
+let projectionMode='perspective';
 const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.autoClear=false;
 renderer.localClippingEnabled=true;
 document.body.appendChild(renderer.domElement);
 const controls=new OrbitControls(camera,renderer.domElement);
 controls.enableDamping=true;controls.screenSpacePanning=true;
+camera.updateProjectionMatrix=function(){
+  if(projectionMode==='orthographic'){
+    const dist=Math.max(this.position.distanceTo(controls.target),1e-4);
+    const halfH=dist*Math.tan(THREE.MathUtils.degToRad(this.fov*0.5))/Math.max(this.zoom||1,1e-4);
+    const halfW=halfH*Math.max(this.aspect||1,1e-4);
+    this.left=-halfW;this.right=halfW;this.top=halfH;this.bottom=-halfH;
+    this.projectionMatrix.makeOrthographic(this.left,this.right,this.top,this.bottom,this.near,this.far);
+    this.projectionMatrixInverse.copy(this.projectionMatrix).invert();
+  }else{
+    THREE.PerspectiveCamera.prototype.updateProjectionMatrix.call(this);
+  }
+};
+controls.addEventListener('change',()=>{if(projectionMode==='orthographic')camera.updateProjectionMatrix();});
 const notify=index=>window.geoBridge?.orientation(index);
 const gizmo=new OrientationGizmo(camera,controls,renderer,orient,notify,stopMotion);
 controls.addEventListener('start',()=>notify(7));
@@ -23,6 +37,7 @@ const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(1,2,3);sce
 let objects=[],faces=[],edges=[],documentId='',mode='face',selected=new Set(),hover=null;
 let center=new THREE.Vector3(),radius=15,down=null;
 let geomBoxMin=new THREE.Vector3(-1,-1,-1),geomBoxMax=new THREE.Vector3(1,1,1);
+let showBoundingBox=false,bboxHelper=null,coordUnits='';
 const raycaster=new THREE.Raycaster();
 const key=o=>`${o.userData.dimension}:${o.userData.tag}`;
 let boundaryColours=new Map();
@@ -92,6 +107,25 @@ function setGeometryVisibility(config){
   }
   hover=null;recolor();
 }
+function setProjectionMode(modeName){
+  projectionMode=modeName==='orthographic'?'orthographic':'perspective';
+  camera.updateProjectionMatrix();
+}
+function updateBboxHud(){
+  const hud=document.getElementById('bbox-hud');
+  if(bboxHelper)bboxHelper.visible=showBoundingBox&&objects.length>0;
+  if(!hud)return;
+  if(!showBoundingBox||!objects.length){hud.style.display='none';return;}
+  const dx=geomBoxMax.x-geomBoxMin.x,dy=geomBoxMax.y-geomBoxMin.y,dz=geomBoxMax.z-geomBoxMin.z;
+  const fmt=v=>Number(v.toPrecision(4)).toString();
+  const unitSuffix=coordUnits?` ${coordUnits}`:'';
+  hud.textContent=`Bounds: ${fmt(dx)} × ${fmt(dy)} × ${fmt(dz)}${unitSuffix}  |  X:[${fmt(geomBoxMin.x)}, ${fmt(geomBoxMax.x)}] Y:[${fmt(geomBoxMin.y)}, ${fmt(geomBoxMax.y)}] Z:[${fmt(geomBoxMin.z)}, ${fmt(geomBoxMax.z)}]`;
+  hud.style.display='block';
+}
+function setBoundingBoxVisible(visible){
+  showBoundingBox=Boolean(visible);
+  updateBboxHud();
+}
 function setShadingMode(modeName){
   shadingMode=['opaque','translucent','wireframe'].includes(modeName)?modeName:'opaque';
   for(const face of faces){
@@ -153,6 +187,7 @@ function applyTranslationPreview(){
   center.copy(baseCenter).applyMatrix4(geometryMatrix);radius=baseRadius*newScale;
   previewMatrix.copy(geometryMatrix);previewOffset.setFromMatrixPosition(geometryMatrix);
   for(const object of objects)objectMatrix(object,geometryMatrix);
+  if(bboxHelper)objectMatrix(bboxHelper,geometryMatrix);
   objectMatrix(grid,geometryMatrix.clone().multiply(baseGridMatrix));
   objectMatrix(axes,geometryMatrix.clone().multiply(baseAxesMatrix));
   for(const object of sampleObjects){
@@ -197,15 +232,19 @@ function appearance(config){
   scene.background=new THREE.Color(config.canvas);grid.material.color.set(config.grid);
   grid.visible=config.showGrid;axes.visible=config.showAxes;
   const dark=new THREE.Color(config.canvas).getHSL({}).l<.4;
-  const hud=document.getElementById('colorbar-hud');
-  if(hud)hud.classList.toggle('dark',dark);
+  for(const id of ['colorbar-hud','bbox-hud']){
+    const el=document.getElementById(id);
+    if(el)el.classList.toggle('dark',dark);
+  }
   palette={face:dark?0x6196ad:0x75a8b5,edge:dark?0xd0e4ec:0x304650};recolor();
 }
 function loadGeometry(data){
   translationPreview=null;previewOffset.set(0,0,0);previewMatrix.identity();
   for(const object of objects){scene.remove(object);object.traverse(part=>{part.geometry?.dispose();part.material?.dispose();});}
+  if(bboxHelper){scene.remove(bboxHelper);bboxHelper.geometry?.dispose();bboxHelper.material?.dispose();bboxHelper=null;}
   objects=[];faces=[];edges=[];selected.clear();hover=null;down=null;documentId=data?.document??null;
-  if(!data){center.set(0,0,0);radius=15;geomBoxMin.set(-1,-1,-1);geomBoxMax.set(1,1,1);grid.position.set(0,0,0);grid.scale.setScalar(1);axes.position.set(0,0,0);axes.scale.setScalar(1);rememberGeometryFrame();orient(0);return;}
+  coordUnits=(data?.coordinate_units?.unit&&data.coordinate_units.unit!=='unitless')?data.coordinate_units.unit:'';
+  if(!data){center.set(0,0,0);radius=15;geomBoxMin.set(-1,-1,-1);geomBoxMax.set(1,1,1);updateBboxHud();grid.position.set(0,0,0);grid.scale.setScalar(1);axes.position.set(0,0,0);axes.scale.setScalar(1);rememberGeometryFrame();orient(0);return;}
   const box=new THREE.Box3();
   for(const entity of data.entities){
     if(!entity.positions.length)continue;
@@ -225,6 +264,10 @@ function loadGeometry(data){
     objects.push(object);scene.add(object);box.expandByObject(object);
   }
   geomBoxMin.copy(box.min);geomBoxMax.copy(box.max);
+  bboxHelper=new THREE.Box3Helper(box,0x3786bd);
+  bboxHelper.visible=showBoundingBox;
+  scene.add(bboxHelper);
+  updateBboxHud();
   box.getCenter(center);radius=Math.max(box.getSize(new THREE.Vector3()).length()*.6,1e-6);
   grid.position.copy(center);grid.position.z=box.min.z-radius*.005;grid.scale.setScalar(radius/8);
   axes.position.copy(box.min);axes.scale.setScalar(radius/8);
@@ -237,12 +280,20 @@ function setMode(value){
   renderer.domElement.style.cursor=mode==='face'?'crosshair':'cell';
 }
 function setSelection(values){selected=new Set(values.map(([d,t])=>`${d}:${t}`));recolor();}
+function setRaycasterFromScreen(ndc){
+  if(projectionMode==='orthographic'){
+    raycaster.ray.origin.set(ndc.x,ndc.y,(camera.near+camera.far)/(camera.near-camera.far)).unproject(camera);
+    raycaster.ray.direction.set(0,0,-1).transformDirection(camera.matrixWorld);
+  }else{
+    raycaster.setFromCamera(ndc,camera);
+  }
+}
 function pickAt(x,y){
   const rect=renderer.domElement.getBoundingClientRect();
   scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);
   const visibleFaces=faces.filter(o=>o.visible);
   const frontSurface=(sx,sy)=>{
-    raycaster.setFromCamera(new THREE.Vector2((sx-rect.left)/rect.width*2-1,1-(sy-rect.top)/rect.height*2),camera);
+    setRaycasterFromScreen(new THREE.Vector2((sx-rect.left)/rect.width*2-1,1-(sy-rect.top)/rect.height*2));
     return raycaster.intersectObjects(visibleFaces,false).find(hit=>{
       if(activeClipPlane&&activeClipPlane.distanceToPoint(hit.point)<0)return false;
       const z=hit.point.clone().project(camera).z;return z>=-1&&z<=1;
@@ -274,7 +325,7 @@ function pickAt(x,y){
       const t=length2?THREE.MathUtils.clamp(((x-ax)*dx+(y-ay)*dy)/length2,0,1):0;
       const sx=ax+t*dx,sy=ay+t*dy,pixels=Math.hypot(x-sx,y-sy);
       if(pixels>6)continue;
-      const u=(t/(-b.z))/((1-t)/(-a.z)+t/(-b.z));
+      const u=projectionMode==='orthographic'?t:(t/(-b.z))/((1-t)/(-a.z)+t/(-b.z));
       const point=a.clone().lerp(b,u).applyMatrix4(camera.matrixWorld);
       if(activeClipPlane&&activeClipPlane.distanceToPoint(point)<0)continue;
       candidates.push({object,point,sx,sy,pixels,distance:point.distanceTo(camera.position)});
@@ -288,16 +339,45 @@ function pickAt(x,y){
   }
   return null;
 }
+function pickSamplePointAt(x,y){
+  if(!sampleStyle.visible||!sampleObjects.length)return null;
+  const rect=renderer.domElement.getBoundingClientRect();
+  scene.updateMatrixWorld(true);camera.updateMatrixWorld(true);
+  let best=null;
+  const pt=new THREE.Vector3(),ndc=new THREE.Vector3();
+  const threshold=Math.max(6,sampleStyle.size*0.75);
+  for(const obj of sampleObjects){
+    if(!obj.visible)continue;
+    const pos=obj.geometry.attributes.position;
+    for(let i=0;i<pos.count;i++){
+      pt.fromBufferAttribute(pos,i).applyMatrix4(obj.matrixWorld);
+      if(activeClipPlane&&clipConfig.clipSamples&&activeClipPlane.distanceToPoint(pt)<0)continue;
+      ndc.copy(pt).project(camera);
+      if(ndc.z<-1||ndc.z>1)continue;
+      const sx=rect.left+(ndc.x+1)*rect.width/2,sy=rect.top+(1-ndc.y)*rect.height/2;
+      const pixels=Math.hypot(x-sx,y-sy);
+      if(pixels<=threshold&&(!best||pixels<best.pixels)){
+        best={label:obj.userData.label,index:i,point:pt.clone(),pixels};
+      }
+    }
+  }
+  return best;
+}
 renderer.domElement.addEventListener('pointerdown',event=>{if(event.button===0)down={x:event.clientX,y:event.clientY,moved:false};});
 renderer.domElement.addEventListener('pointermove',event=>{
   if(down&&Math.hypot(event.clientX-down.x,event.clientY-down.y)>4)down.moved=true;
-  const hit=event.buttons?null:pickAt(event.clientX,event.clientY);
+  if(event.buttons)return;
+  const sampleHit=pickSamplePointAt(event.clientX,event.clientY);
+  if(sampleHit){
+    window.geoBridge?.hoveredPoint(documentId,sampleHit.label,sampleHit.index,sampleHit.point.x,sampleHit.point.y,sampleHit.point.z);
+  }
+  const hit=pickAt(event.clientX,event.clientY);
   const object=hit?.object||null;
   const nextHover=object?key(object):null;
   if(nextHover!==hover){
     hover=nextHover;recolor();
   }
-  if(hit?.point&&object){
+  if(!sampleHit&&hit?.point&&object){
     window.geoBridge?.hovered(documentId,object.userData.dimension,object.userData.tag,hit.point.x,hit.point.y,hit.point.z);
   }
 });
@@ -330,10 +410,8 @@ function buildArrowSegments(coords,vectors,arrowLen){
     if(vlen<1e-9)continue;
     const dx=vx/vlen*arrowLen,dy=vy/vlen*arrowLen,dz=vz/vlen*arrowLen;
     const tx=p[0]+dx,ty=p[1]+dy,tz=p[2]+dz;
-    // Main shaft
     buf[k++]=p[0];buf[k++]=p[1];buf[k++]=p[2];
     buf[k++]=tx;buf[k++]=ty;buf[k++]=tz;
-    // Ortho basis for arrowhead barbs
     let ox=-dy,oy=dx,oz=0;
     let olen=Math.hypot(ox,oy,oz);
     if(olen<1e-6){ox=0;oy=-dz;oz=dy;olen=Math.hypot(ox,oy,oz);}
@@ -516,13 +594,15 @@ function diagnostics(){
     shadingMode,clippingPlane:clipConfig,colorBy:sampleStyle.colorBy,colormap:sampleStyle.colormap,
     scalarRange,vectorMode:sampleStyle.vectorMode,glyphScale:sampleStyle.glyphScale,
     glyphObjectCount:glyphObjects.filter(g=>g.visible).length,
-    glyphSegmentCount:glyphObjects.reduce((n,g)=>n+(g.visible?(g.userData.segmentCount||0):0),0)
+    glyphSegmentCount:glyphObjects.reduce((n,g)=>n+(g.visible?(g.userData.segmentCount||0):0),0),
+    projectionMode,showBoundingBox,
+    boundingBoxDimensions:[geomBoxMax.x-geomBoxMin.x,geomBoxMax.y-geomBoxMin.y,geomBoxMax.z-geomBoxMin.z]
   };
 }
 window.geoViewer={
   setBoundaryRegions,cameraState,setCameraState,setTranslationPreview,orient,appearance,loadGeometry,
-  setMode,setSelection,setGeometryVisibility,setShadingMode,setClippingPlane,setSamples,setSampleStyle,
-  diagnostics,reset:()=>orient(0)
+  setMode,setSelection,setGeometryVisibility,setShadingMode,setClippingPlane,setProjectionMode,
+  setBoundingBoxVisible,setSamples,setSampleStyle,diagnostics,reset:()=>orient(0)
 };
 renderer.domElement.addEventListener('webglcontextlost',event=>{event.preventDefault();window.geoReportFailure('Graphics context lost. Restart the application.');});
 addEventListener('resize',resize);resize();appearance({canvas:'#fafcfc',grid:'#e2e7e8',showGrid:false,showAxes:true});orient(0);setMode('face');

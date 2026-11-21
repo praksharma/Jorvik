@@ -6,7 +6,7 @@ import time
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QLabel, QComboBox,
-    QCheckBox, QPushButton, QProgressBar, QFileDialog, QMessageBox,
+    QCheckBox, QPushButton, QProgressBar, QFileDialog, QMessageBox, QSpinBox,
 )
 
 
@@ -24,7 +24,8 @@ def resume_sweep(*args, **kwargs):
 class SweepWorker(QThread):
     progressChanged = Signal(dict)
 
-    def __init__(self, batches, base, records, destination, file_format, fail_fast, parent=None, resume_from=None, consolidated=False):
+    def __init__(self, batches, base, records, destination, file_format, fail_fast, parent=None,
+                 resume_from=None, consolidated=False, float_dtype='float64', max_workers=1):
         super().__init__(parent)
         self.batches = batches
         self.base = base
@@ -34,6 +35,8 @@ class SweepWorker(QThread):
         self.fail_fast = fail_fast
         self.resume_from = resume_from
         self.consolidated = bool(consolidated)
+        self.float_dtype = str(float_dtype)
+        self.max_workers = int(max_workers)
         self.cancel_event = threading.Event()
         self.result = None
         self.error = None
@@ -44,6 +47,10 @@ class SweepWorker(QThread):
                            progress=self.progressChanged.emit)
             if self.consolidated:
                 options['consolidated'] = True
+            if self.float_dtype != 'float64':
+                options['float_dtype'] = self.float_dtype
+            if self.max_workers > 1:
+                options['max_workers'] = self.max_workers
             if self.resume_from is None:
                 self.result = export_sweep(self.batches, self.base, self.records, self.destination,
                                            file_format=self.file_format, **options)
@@ -90,6 +97,15 @@ class SweepExportPanel(QWidget):
         self.error_policy.addItem('Stop at the first failed configuration', True)
         self.error_policy.addItem('Continue and record configuration failures', False)
         form.addRow('On error', self.error_policy)
+        self.float_dtype = QComboBox(); self.float_dtype.setObjectName('sweep_float_dtype')
+        self.float_dtype.addItem('float64 (double precision)', 'float64')
+        self.float_dtype.addItem('float32 (single precision — ML training)', 'float32')
+        form.addRow('Precision', self.float_dtype)
+        self.max_workers = QSpinBox(); self.max_workers.setObjectName('sweep_max_workers')
+        self.max_workers.setRange(1, 16)
+        self.max_workers.setValue(1)
+        self.max_workers.setToolTip('Number of bounded worker threads for exporting sweep configurations.')
+        form.addRow('Parallel workers', self.max_workers)
         self.consolidated_check = QCheckBox('Also write consolidated single-file bundle (sweep_bundle.nc / .npz)')
         self.consolidated_check.setObjectName('sweep_consolidated')
         form.addRow('', self.consolidated_check)
@@ -125,6 +141,8 @@ class SweepExportPanel(QWidget):
     def _set_controls(self, busy):
         self.file_format.setEnabled(not busy)
         self.error_policy.setEnabled(not busy)
+        self.float_dtype.setEnabled(not busy)
+        self.max_workers.setEnabled(not busy)
         self.consolidated_check.setEnabled(not busy)
         self.start_button.setEnabled(not busy)
         self.resume_button.setEnabled(not busy)
@@ -157,9 +175,12 @@ class SweepExportPanel(QWidget):
         except (ValueError, TypeError, OSError, KeyError) as error:
             QMessageBox.warning(self, 'Sweep export', str(error))
             return False
-        worker = SweepWorker(batches, base, records, destination,
-                             self.file_format.currentData(), self.error_policy.currentData(), self,
-                             resume_from=resume_from, consolidated=self.consolidated_check.isChecked())
+        worker = SweepWorker(
+            batches, base, records, destination,
+            self.file_format.currentData(), self.error_policy.currentData(), self,
+            resume_from=resume_from, consolidated=self.consolidated_check.isChecked(),
+            float_dtype=self.float_dtype.currentData(), max_workers=self.max_workers.value(),
+        )
         self._worker = worker
         self._destination = destination
         self.last_result = self.last_error = None

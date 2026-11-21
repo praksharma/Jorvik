@@ -90,6 +90,10 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.include_distance = QCheckBox('Export boundary distance d(x)')
         self.include_distance.setChecked(True)
         form.addRow('', self.include_distance)
+        self.periodic_target = QComboBox()
+        self.periodic_target.addItem('None', None)
+        self.periodic_target.setToolTip('Optional partner boundary region or 1D/2D group for pointwise-paired periodic twin sampling.')
+        form.addRow('Periodic partner', self.periodic_target)
         self.refinement_target.currentIndexChanged.connect(self.update_refinement_state)
         self.update_refinement_state()
 
@@ -275,6 +279,9 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
             for entity in self.window.geometry.get('topology', []):
                 if entity['dimension'] == 3:
                     self.target.addItem(f"Volume {entity['tag']}", {'volume_tag': entity['tag']})
+            iface_faces = self.window.geometry.get('assembly', {}).get('shared_interface_faces', [])
+            if iface_faces:
+                self.target.addItem('Shared internal interfaces (paired ±n)', {'internal_interface': True, 'faces': list(iface_faces)})
         for region in self.window.boundary_regions:
             self.target.addItem('Region: ' + region['label'], {'region_id': region['id']})
         index = next((i for i in range(self.target.count()) if self.target.itemData(i) == current), 0)
@@ -285,6 +292,7 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.refinement_target.blockSignals(True)
         while self.refinement_target.count() > 1:
             self.refinement_target.removeItem(1)
+        self.refinement_target.addItem('Auto-detect BC junctions & sharp corners', {'singularity': True})
         for group in (self.window.geometry['groups'] if self.window.geometry else []):
             if group['dimension'] in (1, 2):
                 kind = 'edges' if group['dimension'] == 1 else 'faces'
@@ -297,10 +305,25 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         self.refinement_target.blockSignals(False)
         self.update_refinement_state()
 
+        per_current = self.periodic_target.currentData()
+        self.periodic_target.blockSignals(True)
+        while self.periodic_target.count() > 1:
+            self.periodic_target.removeItem(1)
+        for group in (self.window.geometry['groups'] if self.window.geometry else []):
+            if group['dimension'] in (1, 2):
+                kind = 'edges' if group['dimension'] == 1 else 'faces'
+                name = group['name'] or f"Group {group['tag']}"
+                self.periodic_target.addItem(f'{name} ({kind})', {'dimension': group['dimension'], 'tags': group['entities'], 'label': name})
+        for region in self.window.boundary_regions:
+            self.periodic_target.addItem('Region: ' + region['label'], {'region_id': region['id']})
+        per_index = next((i for i in range(self.periodic_target.count()) if self.periodic_target.itemData(i) == per_current), 0)
+        self.periodic_target.setCurrentIndex(per_index)
+        self.periodic_target.blockSignals(False)
+
     def set_busy(self, busy):
         self._recipe_busy = bool(busy)
         for control in (self.target, self.method, self.count, self.seed, self.label, self.resolution,
-                        self.compute_mode, self.cpu_threads, self.refinement_target,
+                        self.compute_mode, self.cpu_threads, self.refinement_target, self.periodic_target,
                         self.include_differential_geometry, self.include_adf, self.include_spacetime):
             control.setEnabled(not busy)
         self.update_compute_mode()
@@ -362,10 +385,15 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         if self.window.geometry is None: raise ValueError('Open geometry before preparing a sampling recipe.')
         target = self.target.currentData()
         snapshot = None
+        internal_iface = False
         if isinstance(target, dict) and 'region_id' in target:
             from .regions import region_snapshot
             snapshot = region_snapshot(self.window.boundary_regions, self.window.geometry, target['region_id'])
             entities, kind = snapshot['entities'], 'region'
+        elif isinstance(target, dict) and target.get('internal_interface'):
+            entities = [[2, int(t)] for t in target['faces']]
+            kind = 'entities'
+            internal_iface = True
         elif isinstance(target, dict) and 'volume_tag' in target:
             entities, kind = [[3, target['volume_tag']]], 'interior'
         elif isinstance(target, dict):
@@ -390,19 +418,52 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
                        cpu_threads=self.cpu_threads.value() if self.compute_mode.currentData()=='multicore' else 1)
         if snapshot is not None:
             request['boundary_region'] = snapshot
+        if internal_iface:
+            request['internal_interface'] = True
         ref_target = self.refinement_target.currentData()
         if isinstance(ref_target, dict):
-            if 'region_id' in ref_target:
-                from .regions import region_snapshot
-                ref_snap = region_snapshot(self.window.boundary_regions, self.window.geometry, ref_target['region_id'])
-                ref_entities = ref_snap['entities']
+            if ref_target.get('singularity'):
+                request['singularity_refinement'] = {
+                    'bias': float(self.refinement_bias.value()) if self.refinement_bias.value() > 0 else 5.0,
+                    'decay': float(self.refinement_decay.value()),
+                    'regions': [
+                        {'label': r['label'], 'entities': r['entities']}
+                        for r in self.window.boundary_regions
+                    ],
+                }
+                request['all_entities'] = [
+                    {'dimension': e['dimension'], 'tag': e['tag']}
+                    for e in geometry.get('entities', [])
+                ]
             else:
-                ref_entities = [[ref_target['dimension'], t] for t in ref_target['tags']]
-            request['refinement'] = {
-                'entities': ref_entities,
-                'bias': float(self.refinement_bias.value()),
-                'decay': float(self.refinement_decay.value()),
-                'include_distance': bool(self.include_distance.isChecked()),
+                if 'region_id' in ref_target:
+                    from .regions import region_snapshot
+                    ref_snap = region_snapshot(self.window.boundary_regions, self.window.geometry, ref_target['region_id'])
+                    ref_entities = ref_snap['entities']
+                else:
+                    ref_entities = [[ref_target['dimension'], t] for t in ref_target['tags']]
+                request['refinement'] = {
+                    'entities': ref_entities,
+                    'bias': float(self.refinement_bias.value()),
+                    'decay': float(self.refinement_decay.value()),
+                    'include_distance': bool(self.include_distance.isChecked()),
+                }
+        per_target = self.periodic_target.currentData()
+        if isinstance(per_target, dict):
+            if kind == 'interior':
+                raise ValueError('Periodic partner sampling requires a boundary target (edges or faces), not Domain interior.')
+            if 'region_id' in per_target:
+                from .regions import region_snapshot
+                per_snap = region_snapshot(self.window.boundary_regions, self.window.geometry, per_target['region_id'])
+                per_entities = per_snap['entities']
+                per_base_label = per_snap['label']
+            else:
+                per_entities = [[per_target['dimension'], t] for t in per_target['tags']]
+                per_base_label = per_target.get('label', 'periodic_partner')
+            request['periodic_partner'] = {
+                'entities': per_entities,
+                'target_label': self.next_available_label(per_base_label, [label]),
+                'translation': 'auto',
             }
         self._attach_pinn_options(request)
         return request
@@ -414,6 +475,9 @@ class SamplingPanel(SamplingRecipeActions, QWidget):
         except ValueError as error:
             QMessageBox.information(self, 'Sampling settings', str(error)); return
         request['label'] = self.next_available_label(request['label'])
+        if isinstance(request.get('periodic_partner'), dict):
+            p_base = request['periodic_partner']['target_label']
+            request['periodic_partner']['target_label'] = self.next_available_label(p_base, [request['label']])
         self.label.setText(request['label'])
         self.generate_request(request)
 

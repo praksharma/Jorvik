@@ -510,6 +510,34 @@ def sample_geometry_batch(requests):
             gmsh.finalize()
     for idx, (req, _, _, _, _) in enumerate(verified):
         batch = outputs[idx]
+        if req.get('singularity_refinement'):
+            from .adaptive import sample_with_singularity_refinement
+            scfg = req['singularity_refinement']
+            clean_req = {k: v for k, v in req.items() if k != 'singularity_refinement'}
+            geom_meta = {
+                'source': batch['source'],
+                'source_hash': batch['source_hash'],
+                'dimension': 3 if batch.get('interior_domain') == 'solid' else 2,
+                'entities': req.get('all_entities', [{'dimension': d, 'tag': t} for d, t in batch.get('entities', [])]),
+                'regions': scfg.get('regions', []),
+            }
+            batch = sample_with_singularity_refinement(
+                geom_meta,
+                clean_req,
+                regions=scfg.get('regions') or None,
+                bias=float(scfg.get('bias', 5.0)),
+                decay=float(scfg.get('decay', 0.1)),
+            )
+        if req.get('internal_interface'):
+            from .paired import sample_internal_interface
+            clean_req = {k: v for k, v in req.items() if k != 'internal_interface'}
+            geom_meta = {
+                'source': batch['source'],
+                'source_hash': batch['source_hash'],
+                'dimension': 3,
+                'assembly': {'shared_interface_faces': [t for _, t in clean_req.get('entities', [])]},
+            }
+            batch = sample_internal_interface(geom_meta, clean_req)
         if req.get('include_differential_geometry') and batch.get('target') != 'interior' and batch.get('entity_dimension') in (1, 2):
             from .differential_geometry import attach_differential_geometry
             batch = attach_differential_geometry(batch)
@@ -545,7 +573,19 @@ def sample_geometry_batch(requests):
 if __name__ == '__main__':
     try:
         payload = json.load(sys.stdin)
-        out = sample_geometry_batch(payload) if isinstance(payload, list) else sample_geometry(payload)
+        if isinstance(payload, dict) and isinstance(payload.get('periodic_partner'), dict):
+            from .paired import sample_periodic_pair
+            pcfg = payload['periodic_partner']
+            clean_req = {k: v for k, v in payload.items() if k != 'periodic_partner'}
+            src_batch, tgt_batch = sample_periodic_pair(
+                clean_req,
+                pcfg['entities'],
+                target_label=pcfg.get('target_label'),
+                translation=pcfg.get('translation', 'auto'),
+            )
+            out = [src_batch, tgt_batch]
+        else:
+            out = sample_geometry_batch(payload) if isinstance(payload, list) else sample_geometry(payload)
         print(json.dumps(out, allow_nan=False))
     except Exception as error:
         print(str(error), file=sys.stderr)

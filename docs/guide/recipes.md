@@ -559,11 +559,18 @@ workflows end to end and export their enriched NetCDF (`.nc`) and NumPy (`.npz`)
 | Task | Steps | Result |
 | --- | --- | --- |
 | Create a boundary region | Select edges/faces → **Boundary regions…** → name → **Save region** | Labels existing CAD entities; no geometry partitioning |
+| Auto-create regions from CAD | **Boundary regions…** → **Auto-create from groups / CAD names** | Creates coloured regions from imported physical groups or named entities |
 | Filter CAD entities | Type a tag, CAD type or region name in **Filter faces, edges, groups or regions…** | Live tree filtering; clear to restore all items |
 | Batch sample all regions | **Sampling** → **Sample all regions + interior** | Generates all defined boundary regions + interior in one pass |
+| Periodic twin sampling | **Sampling** → choose source boundary **Target** and **Periodic partner** → **Generate samples** | Generates pointwise-paired twin datasets with verified anti-parallel normals |
+| Singularity refinement | **Sampling** → **Distance / refinement** → **Auto-detect BC junctions & sharp corners** | Biases points toward BC junctions and sharp corners with importance weights |
+| Shared internal interfaces | **Sampling** → **Target** → **Shared internal interfaces (paired ±n)** | Samples multi-volume shared faces with both opposite outward normal fields |
 | Color points by scalar field | **Sampling** → **Color points by** → choose $d(\mathbf{x})$, weight $w$, ADF, $H$, $K$, time $t$, or tag | Per-point scientific colormap (`Viridis`/`Plasma`/`Coolwarm`) + HUD colorbar |
 | Show 3D normal/tangent arrows | **Sampling** → **Vector arrows** → **Outward normals n** or **Darboux frame (n, t₁, t₂)** | 3D vector arrow glyphs with adjustable **Arrow scale** slider |
+| Orthographic & bounding box | Toolbar **Perspective / Orthographic** (`O`) and **View → Show bounding box & dimensions** (`B`) | Removes perspective foreshortening and displays domain $\Delta X \times \Delta Y \times \Delta Z$ cage |
 | Inspect 3D interior points | Toolbar **Translucent (X-Ray)** / **Wireframe** or **Clip X / Y / Z** + slider | Cuts away or ghosts outer CAD faces to reveal 3D interior clouds |
+| Center transform pivot | **Parametrisation…** → **Center pivot on geometry / regions** | Populates Pivot $(X, Y, Z)$ with the exact domain or checked-region center |
+| Export float32 / parallel sweep | **Parametrisation…** → **Processing** → **Precision (`float32`)** and **Parallel workers** | Writes compact single-precision training shards across multiple threads |
 | Save viewport screenshot | `Ctrl+P` or **File → Save viewport screenshot…** (toolbar camera button) | Exports the live 3D viewport as a `.png` image |
 | Compare sampling methods | Generate a dataset, change method/seed, generate another | Separate labelled datasets you can show/hide |
 | Undo or redo an edit | `Ctrl+Z`; `Ctrl+Shift+Z` or `Ctrl+Y` | Restores supported edits within the current document's 30-entry history |

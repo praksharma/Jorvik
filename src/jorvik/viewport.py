@@ -43,6 +43,11 @@ class Bridge(QObject):
         if self.view.geometry and document == self.view.geometry["document"]:
             self.view.hovered.emit(dimension, tag, x, y, z)
 
+    @Slot(str, str, int, float, float, float)
+    def hoveredPoint(self, document, label, index, x, y, z):
+        if self.view.geometry and document == self.view.geometry["document"]:
+            self.view.pointHovered.emit(label, index, x, y, z)
+
     @Slot(str)
     def failed(self, message):
         self.view.fail(message)
@@ -57,6 +62,7 @@ class Viewport(QWidget):
     oriented = Signal(int)
     picked = Signal(int, int, bool)
     hovered = Signal(int, int, float, float, float)
+    pointHovered = Signal(str, int, float, float, float)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -74,6 +80,8 @@ class Viewport(QWidget):
         self.show_grid = False
         self.show_axes = True
         self.shading_mode = "opaque"
+        self.projection_mode = "perspective"
+        self.show_bounding_box = False
         self.clipping_plane = {"axis": "off", "position": 0.0, "flip": False, "clipSamples": False}
         self.geometry_visibility = {"geometry":True,"faces":True,"edges":True,"isolatedEntities":None,"hiddenFaces":[],"isolatedFaces":None}
         layout = QVBoxLayout(self)
@@ -123,6 +131,14 @@ class Viewport(QWidget):
         self.shading_mode = mode if mode in ("opaque", "translucent", "wireframe") else "opaque"
         self.call("setShadingMode", self.shading_mode)
 
+    def set_projection_mode(self, mode):
+        self.projection_mode = "orthographic" if mode == "orthographic" else "perspective"
+        self.call("setProjectionMode", self.projection_mode)
+
+    def set_bounding_box_visible(self, visible):
+        self.show_bounding_box = bool(visible)
+        self.call("setBoundingBoxVisible", self.show_bounding_box)
+
     def set_clipping_plane(self, config):
         self.clipping_plane.update(config)
         self.call("setClippingPlane", self.clipping_plane)
@@ -166,6 +182,8 @@ class Viewport(QWidget):
         self.call("setBoundaryRegions", self.boundary_regions)
         self.call("setMode", self.mode)
         self.call("setSelection", self.selection)
+        self.call("setProjectionMode", self.projection_mode)
+        self.call("setBoundingBoxVisible", self.show_bounding_box)
         self.call("setShadingMode", self.shading_mode)
         self.call("setClippingPlane", self.clipping_plane)
         self.call("setSamples", self._js_samples(self.samples))
