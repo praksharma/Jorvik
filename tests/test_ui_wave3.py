@@ -60,6 +60,10 @@ class UiWave3Test(unittest.TestCase):
             try:
                 self.wait_for(lambda: window.view.is_ready or not window.view.error.isHidden())
                 self.assertTrue(window.view.is_ready, window.view.error.text())
+                self.assertEqual(
+                    [a.text().replace('&', '') for a in window.menuBar().actions()],
+                    ['File', 'Edit', 'View', 'Help'],
+                )
 
                 # 1. Drag-and-Drop opening of ANNULUS .geo file and Open Recent menu tracking
                 mime = QMimeData()

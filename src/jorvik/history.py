@@ -40,7 +40,7 @@ class HistoryActions:
         self._history_entries = []
         self._history_index = 0
         self._history_suspended = False
-        menu = self.menuBar().addMenu('&Edit')
+        menu = getattr(self, 'edit_menu', None) or self.menuBar().addMenu('&Edit')
         self.undo_action = menu.addAction('Undo', self.undo_edit, 'Ctrl+Z')
         self.redo_action = menu.addAction('Redo', self.redo_edit, 'Ctrl+Shift+Z')
         self.redo_action.setShortcuts(['Ctrl+Shift+Z', 'Ctrl+Y'])

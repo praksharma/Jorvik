@@ -65,6 +65,7 @@ class MainWindow(HistoryActions, ProjectActions, QMainWindow):
         self.screenshot_action = file_menu.addAction("Save viewport screenshot…", self.save_viewport_screenshot, "Ctrl+P")
         self.inspect_sweep_action = file_menu.addAction('Inspect exported sweep…', self.open_sweep_inspector)
         file_menu.addAction("&Quit", self.close, "Ctrl+Q")
+        self.edit_menu = self.menuBar().addMenu("&Edit")
         self.view_menu = self.menuBar().addMenu("&View")
         self.toolbar = QToolBar("Viewport", self)
         self.toolbar.setObjectName("viewport_toolbar")
